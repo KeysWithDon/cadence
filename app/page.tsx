@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { standardBeatsPerBar, standardTimeline, standardTimingLabel, type StandardSource } from "./standard-timeline";
 import { STANDARDS } from "./standards";
+import { voiceLeadProgression, type VoicedChord, type VoiceLeadingStyle, type VoicingLayout } from "./voice-leading";
 
 const NOTES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
 const MAJOR: Record<string, string[]> = {
@@ -79,106 +80,8 @@ function musicalComplexity(chord:string, requested:"7"|"9"|"11"|"13") {
   return requested === "11" ? "9" as const : requested;
 }
 
-function addColorTones(base:number[], chord:string) {
-  const {root} = parseChord(chord);
-  const symbol = chord.split("(")[0];
-  const hasNinth = /9|11|13/.test(symbol);
-  const ninth = symbol.includes("♭9") ? 13 : symbol.includes("♯9") ? 15 : 14;
-  const eleventh = symbol.includes("♯11") ? 18 : 17;
-  const thirteenth = symbol.includes("♭13") ? 20 : 21;
-  const offsets = [
-    ...(hasNinth ? [ninth] : []),
-    ...(/11|13/.test(symbol) ? [eleventh] : []),
-    ...(symbol.includes("13") || /add6/i.test(symbol) ? [thirteenth] : []),
-    ...(symbol.includes("alt") ? [13,15,20] : []),
-  ];
-  const tones = offsets.map(offset=>48+root+offset).map(note=>note>72?note-12:note);
-  return [...new Set([...base,...tones])].sort((a,b)=>a-b);
-}
-
-function shapeVoicing(base:number[], chord:string, shape=0) {
-  if (shape === 1) {
-    const split = Math.ceil(base.length/2);
-    const opened = base.map((note,index)=>index>=split?note+12:note).map(note=>note>72?note-12:note).sort((a,b)=>a-b);
-    return addColorTones(opened,chord);
-  }
-  if (shape === 2 && base.length>1) {
-    const dropped = [...base];
-    dropped[dropped.length-2] -= 12;
-    return addColorTones(dropped.sort((a,b)=>a-b),chord);
-  }
-  return addColorTones(base,chord);
-}
-
 function noteName(midi: number) {
   return `${NOTES[midi % 12]}${Math.floor(midi / 12) - 1}`;
-}
-
-function smoothVoiceLeading(chords: string[]) {
-  let previous: number[] | null = null;
-  let previousName: string | null = null;
-  const usedVoicings = new Map<string, Set<string>>();
-  return chords.map((name, chordIndex) => {
-    const {root, quality} = parseChord(name);
-    const intervals = quality === "major" ? [0,4,7]
-      : quality === "minor" ? [0,3,7]
-      : quality === "minor6" ? [0,3,7,9]
-      : quality === "major6" ? [0,4,7,9]
-      : quality === "minorMajor7" ? [0,3,7,11]
-      : quality === "maj7Flat5" ? [0,4,6,11]
-      : quality === "minorAug" ? [0,3,8]
-      : quality === "sus" ? [0,5,7]
-      : quality === "sus7" ? [0,5,7,10]
-      : quality === "dim" ? [0,3,6]
-      : quality === "aug" ? [0,4,8]
-      : quality === "maj7" ? [0,4,7,11]
-      : quality === "m7" ? [0,3,7,10]
-      : quality === "halfDim7" ? [0,3,6,10]
-      : quality === "dim7" ? [0,3,6,9]
-      : quality === "aug7" ? [0,4,8,10]
-      : [0,4,7,10];
-    const candidates: number[][] = [];
-    for (let inversion=0; inversion<intervals.length; inversion++) {
-      const rotated = [...intervals.slice(inversion).map(n=>n+root), ...intervals.slice(0,inversion).map(n=>n+root+12)];
-      for (const shift of [36,48,60]) {
-        const notes = rotated.map(n=>shift+n).sort((a,b)=>a-b);
-        if (notes[0]>=43 && notes[notes.length-1]<=76) candidates.push(notes);
-      }
-    }
-    const used = usedVoicings.get(name) || new Set<string>();
-    const phraseCenters = [57, 59, 61, 58];
-    const desiredCenter = phraseCenters[chordIndex % phraseCenters.length];
-    const score = (notes:number[]) => {
-      const center = notes.reduce((sum,n)=>sum+n,0)/notes.length;
-      if (!previous) return notes.reduce((sum,n)=>sum+Math.abs(n-60),0)+Math.abs(center-desiredCenter);
-      const nearestMovement = notes.reduce((sum,n)=>sum+Math.min(...previous!.map(p=>Math.abs(n-p))),0)
-        + previous.reduce((sum,p)=>sum+Math.min(...notes.map(n=>Math.abs(n-p))),0)*.45;
-      const commonTones = notes.filter(n=>previous!.includes(n)).length;
-      const largeLeapPenalty = notes.reduce((sum,n)=>sum+(Math.min(...previous!.map(p=>Math.abs(n-p)))>5?5:0),0);
-      let resolutionReward = 0;
-      if (previousName) {
-        const prev = parseChord(previousName);
-        const current = parseChord(name);
-        const dominantResolution = ["7","aug7"].includes(prev.quality) && current.root===(prev.root+5)%12;
-        const leadingDimResolution = ["dim","dim7"].includes(prev.quality) && current.root===(prev.root+1)%12;
-        const movesBy = (fromPc:number,toPc:number,delta:number) => previous!.some(from=>from%12===fromPc && notes.some(to=>to-from===delta && to%12===toPc));
-        if (dominantResolution) {
-          const targetThird = current.quality==="minor" || current.quality==="m7" ? (current.root+3)%12 : (current.root+4)%12;
-          if (movesBy((prev.root+4)%12,current.root,1)) resolutionReward += 9;
-          if (movesBy((prev.root+10)%12,targetThird,-1)) resolutionReward += 9;
-        }
-        if (leadingDimResolution && movesBy(prev.root,current.root,1)) resolutionReward += 8;
-      }
-      const repeatPenalty = used.has(notes.join(",")) ? 14 : 0;
-      return nearestMovement-commonTones*5+largeLeapPenalty+Math.abs(center-desiredCenter)*.7+repeatPenalty-resolutionReward;
-    };
-    const best = candidates.sort((a,b)=>score(a)-score(b))[0];
-    used.add(best.join(","));
-    usedVoicings.set(name,used);
-    previous = best;
-    previousName = name;
-    return best;
-  });
 }
 
 let sharedAudioContext: AudioContext | null = null;
@@ -206,12 +109,12 @@ async function ensureAudioContext() {
   return ctx.state === "running" ? ctx : null;
 }
 
-function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15) {
+function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, bassMidi?: number) {
   const releaseAt = Math.max(.2, holdSeconds);
   midis.forEach((midi, i) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    const isBass = midis.length > 1 && i === 0;
+    const isBass = i === 0 && midi === bassMidi;
     const noteStart = ctx.currentTime + i * 0.035;
     osc.type = isBass ? "sine" : "triangle";
     osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
@@ -224,21 +127,11 @@ function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15) {
   });
 }
 
-async function playNotes(midis: number[], holdSeconds = 1.15) {
+async function playNotes(midis: number[], holdSeconds = 1.15, bassMidi?: number) {
   const ctx = await ensureAudioContext();
   if (!ctx) return false;
-  scheduleNotes(ctx, midis, holdSeconds);
+  scheduleNotes(ctx, midis, holdSeconds, bassMidi);
   return true;
-}
-
-function withBass(voicing: number[], chord: string) {
-  const primary = chord.split("(")[0];
-  const slashBass = primary.match(/\/([A-G](?:♯|♭)?)(?:$|[^0-9])/);
-  const root = slashBass ? NOTES.indexOf(slashBass[1]) : parseChord(chord).root;
-  let bass = 36 + root;
-  while (bass >= Math.min(...voicing) - 5) bass -= 12;
-  if (bass < 36) bass += 12;
-  return [bass, ...voicing];
 }
 
 function expandDegrees(degrees: number[], length: number) {
@@ -274,6 +167,10 @@ function resolutionPath(sourceNote:string, sourceQuality:"major"|"minor"|"domina
   return [source,...bridge,...cadence].slice(0,length);
 }
 
+function audibleNotes(event: VoicedChord, includeBass: boolean) {
+  return includeBass ? [event.bass, ...event.upperVoices] : event.upperVoices;
+}
+
 export default function Home() {
   const [key, setKey] = useState("C");
   const [generatorMode, setGeneratorMode] = useState<"common"|"target"|"resolve"|"standards">("common");
@@ -305,11 +202,20 @@ export default function Home() {
 
   const chord = progression[selected];
   const standardBarBeats = standardBeatsPerBar(STANDARDS[standardIndex] as StandardSource);
-  const voiceLedProgression = useMemo(() => smoothVoiceLeading(progression), [progression]);
-  const chordMidis = useMemo(() => {
-    const close = voiceLedProgression[selected] || [48,52,55,59];
-    return shapeVoicing(close,chord,voicing);
-  }, [voiceLedProgression, selected, voicing, chord]);
+  const voiceStyle: VoiceLeadingStyle = generatorMode === "standards" ? "jazz"
+    : PROGRESSIONS[preset]?.name.includes("Gospel") || PROGRESSIONS[preset]?.name.includes("Soul") ? "gospel"
+    : /Pop|Worship|Sensitive/.test(PROGRESSIONS[preset]?.name ?? "") ? "ccm"
+    : "traditional";
+  const voiceLayout = (["close", "open", "drop2"] as const)[voicing] satisfies VoicingLayout;
+  const voicedProgression = useMemo(() => voiceLeadProgression(progression, {
+    style: voiceStyle,
+    layout: voiceLayout,
+    includeBass: true,
+    upperRange: [48, 76],
+    bassRange: [36, 48],
+  }), [progression, voiceStyle, voiceLayout]);
+  const voicedChord = voicedProgression[selected] ?? voicedProgression[0];
+  const chordMidis = voicedChord?.upperVoices ?? [48,52,55,59];
 
   const standardSequence = (index=standardIndex) => {
     const events = standardTimeline(STANDARDS[index] as StandardSource);
@@ -482,15 +388,17 @@ export default function Home() {
     setIsPlaying(true);
     const beat = 60000 / tempo;
     let elapsed = 0;
-    progression.forEach((c, i) => {
+    progression.forEach((_chordName, i) => {
       const playEvent = () => {
-      const fullVoicing = shapeVoicing(voiceLedProgression[i],c);
+      const event = voicedProgression[i];
+      if (!event) return;
       const eventBeats = durations[i] ?? 1;
       setSelected(i);
+      const notes = audibleNotes(event, includeBass);
       if (ctx.state === "running") {
-        scheduleNotes(ctx, includeBass?withBass(fullVoicing, c):fullVoicing, eventBeats*beat/1000*.94);
+        scheduleNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined);
       } else {
-        void playNotes(includeBass?withBass(fullVoicing, c):fullVoicing, eventBeats*beat/1000*.94);
+        void playNotes(notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined);
       }
       const row = progressionRowRef.current;
       const card = chordCardRefs.current[i];
@@ -503,7 +411,7 @@ export default function Home() {
     playbackTimers.current.push(window.setTimeout(()=>setIsPlaying(false), elapsed * beat));
   }
 
-  const bassMidi = withBass(chordMidis, chord)[0];
+  const bassMidi = voicedChord?.bass ?? 36;
   const keyboardNotes = includeBass?[bassMidi, ...chordMidis]:chordMidis;
   const whites = Array.from({length:49},(_,i)=>36+i).filter(m=>![1,3,6,8,10].includes(m%12));
   const blacks = Array.from({length:49},(_,i)=>36+i).filter(m=>[1,3,6,8,10].includes(m%12));
@@ -565,8 +473,8 @@ export default function Home() {
         <div className="section-head"><div><span className="step">{generatorMode==="standards"?`01 · ${STANDARDS[standardIndex].bars.length} BARS · ${STANDARDS[standardIndex].timeSignature.join("/")}`:"01"}</span><h2>{generatorMode==="standards"?STANDARDS[standardIndex].name:"Your progression"}</h2><p>{generatorMode==="standards"?`${STANDARDS[standardIndex].key} · ${STANDARDS[standardIndex].style}${STANDARDS[standardIndex].matchStatus==="reduction"?" · Reduced harmonic study":""} · Select each chord to hear its voice-led piano shape.`:"Select a chord to explore it, or add a turnaround before the next chord."}</p></div><div className="progression-controls">{substitutionHistory.length>0&&<button className="undo-sub" onClick={undoSubstitution}>↶ Switch back</button>}<button className={`playall ${isPlaying?"playing":""}`} onClick={playProgression}>{isPlaying?"■ Stop progression":"▶ Play whole progression"}</button></div></div>
         <div className="progression-row" ref={progressionRowRef}>
           {progression.map((c, i) => <div className="chord-card" key={`${c}-${i}`} ref={(node)=>{chordCardRefs.current[i]=node}}>
-            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const fullVoicing=shapeVoicing(voiceLedProgression[i],c);setSelected(i);setVoicing(0);playNotes(includeBass?withBass(fullVoicing,c):fullVoicing,generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
-            <button className={`substitute-trigger ${editTarget===i?"open":""}`} onClick={()=>{setSelected(i);setVoicing(0);setSubstitutionTarget("next");setShowBlockedInfo(false);setEditTarget(editTarget===i?null:i)}}>{editTarget===i?"× Close":"↗ Substitute"}</button>
+            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
+            <button className={`substitute-trigger ${editTarget===i?"open":""}`} onClick={()=>{setSelected(i);setSubstitutionTarget("next");setShowBlockedInfo(false);setEditTarget(editTarget===i?null:i)}}>{editTarget===i?"× Close":"↗ Substitute"}</button>
           </div>)}
           {generatorMode!=="standards"&&<button className="add-tile" onClick={generate}>＋<span>New idea</span></button>}
         </div>
@@ -595,9 +503,9 @@ export default function Home() {
               </div>})}
               {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">B</b>:chordMidis.includes(midi)&&fingers&&<b>{chordMidis.indexOf(midi)+1}</b>}</div>})}
             </div></div>
-            <button className="listen" onClick={()=>playNotes(includeBass?withBass(chordMidis, chord):chordMidis)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
+            <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
           </div>
-          <div className="lesson-note"><span>✦</span><div><b>Why this works</b><p>{voicing===0?"Each voice takes the shortest practical path from the previous chord, so the harmony connects smoothly instead of jumping back to root position.":voicing===1?"Spreading the inner voices creates space and lets every note breathe.":"Drop 2 moves the second-highest note down an octave for a warm, professional sound."}</p></div></div>
+          <div className="lesson-note"><span>✦</span><div><b>Why this works</b><p>{voicedChord?.diagnostics.summary} {voicing===1?"The same voice-leading is kept in a wider, open register.":voicing===2?"The second-highest voice is dropped without abandoning its melodic destination.":"Common tones, guide tones, melody, and bass are judged across the whole progression."}</p></div></div>
         </div>
       </section>
       <footer><span>Cadence</span><p>Make harmony feel like home.</p><small>Built for curious ears.</small></footer>
