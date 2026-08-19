@@ -121,3 +121,5 @@
   .generator-card .mode-options button{width:100%;min-width:0;white-space:normal}
   .generator-card.mode-standards>label:first-of-type{grid-column:1/-1}
 }
+
+.tempo b{white-space:nowrap}
