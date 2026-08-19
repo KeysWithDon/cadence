@@ -183,10 +183,30 @@ function smoothVoiceLeading(chords: string[]) {
 
 let sharedAudioContext: AudioContext | null = null;
 
-function playNotes(midis: number[], holdSeconds = 1.15) {
-  const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const ctx = sharedAudioContext?.state !== "closed" ? sharedAudioContext : (sharedAudioContext = new AudioCtx());
-  if (ctx.state === "suspended") void ctx.resume();
+async function ensureAudioContext() {
+  const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return null;
+
+  if (!sharedAudioContext || sharedAudioContext.state === "closed") {
+    sharedAudioContext = new AudioCtx();
+  }
+  const ctx = sharedAudioContext;
+
+  // Browsers initially suspend Web Audio until it is explicitly resumed from a
+  // user gesture. Wait for that resume before scheduling notes; scheduling into
+  // a suspended context is unreliable in Safari and other mobile browsers.
+  if (ctx.state !== "running") {
+    try {
+      await ctx.resume();
+    } catch {
+      return null;
+    }
+  }
+
+  return ctx.state === "running" ? ctx : null;
+}
+
+function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15) {
   const releaseAt = Math.max(.2, holdSeconds);
   midis.forEach((midi, i) => {
     const osc = ctx.createOscillator();
@@ -202,6 +222,13 @@ function playNotes(midis: number[], holdSeconds = 1.15) {
     osc.start(noteStart);
     osc.stop(noteStart + releaseAt + .05);
   });
+}
+
+async function playNotes(midis: number[], holdSeconds = 1.15) {
+  const ctx = await ensureAudioContext();
+  if (!ctx) return false;
+  scheduleNotes(ctx, midis, holdSeconds);
+  return true;
 }
 
 function withBass(voicing: number[], chord: string) {
@@ -442,21 +469,37 @@ export default function Home() {
     setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
   }
 
-  function playProgression() {
+  async function playProgression() {
     playbackTimers.current.forEach(clearTimeout);
     playbackTimers.current = [];
     if (isPlaying) { setIsPlaying(false); return; }
+
+    // Unlock audio while this click still counts as a user gesture. The actual
+    // progression notes are dispatched by timers, which cannot unlock audio.
+    const ctx = await ensureAudioContext();
+    if (!ctx) { setIsPlaying(false); return; }
+
     setIsPlaying(true);
     const beat = 60000 / tempo;
     let elapsed = 0;
-    progression.forEach((c, i) => { playbackTimers.current.push(window.setTimeout(() => {
+    progression.forEach((c, i) => {
+      const playEvent = () => {
       const fullVoicing = shapeVoicing(voiceLedProgression[i],c);
       const eventBeats = durations[i] ?? 1;
-      setSelected(i); playNotes(includeBass?withBass(fullVoicing, c):fullVoicing, eventBeats*beat/1000*.94);
+      setSelected(i);
+      if (ctx.state === "running") {
+        scheduleNotes(ctx, includeBass?withBass(fullVoicing, c):fullVoicing, eventBeats*beat/1000*.94);
+      } else {
+        void playNotes(includeBass?withBass(fullVoicing, c):fullVoicing, eventBeats*beat/1000*.94);
+      }
       const row = progressionRowRef.current;
       const card = chordCardRefs.current[i];
       if (row && card) row.scrollTo({left:card.offsetLeft-row.clientWidth/2+card.clientWidth/2,behavior:"smooth"});
-    }, elapsed * beat)); elapsed += durations[i] ?? 1; });
+      };
+      if (elapsed === 0) playEvent();
+      else playbackTimers.current.push(window.setTimeout(playEvent, elapsed * beat));
+      elapsed += durations[i] ?? 1;
+    });
     playbackTimers.current.push(window.setTimeout(()=>setIsPlaying(false), elapsed * beat));
   }
 
