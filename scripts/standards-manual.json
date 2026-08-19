@@ -1,0 +1,119 @@
+[
+  {
+    "name": "Cherry Pink And Apple Blossom White",
+    "key": "E♭ major",
+    "composer": "",
+    "style": "Latin standard",
+    "timeSignature": [4, 4],
+    "bars": [
+      "E♭maj7", "E♭maj7", "Gdim7", "Gdim7", "Fm7", "B♭7", "E♭6", "E♭6",
+      "B♭7", "B♭7", "E♭6", "E♭6", "B♭7", "B♭7", "E♭6", "E♭6",
+      "F7", "B♭7", "E♭maj7", "Edim7", "F7", "B♭7", "E♭6", "E♭6"
+    ],
+    "source": "manual-transcription",
+    "matchStatus": "manual",
+    "note": "Chord-symbol transcription of the displayed lead-sheet measures; repeat endings are represented as written."
+  },
+  {
+    "name": "Midwestern Nights Dream",
+    "key": "B minor",
+    "composer": "",
+    "style": "Fusion standard",
+    "timeSignature": [4, 4],
+    "bars": [
+      "Bm9", "Gmaj9", "Em7sus4", "Em7sus4", "Bm9", "Gmaj9", "Em7sus4", "Em7sus4",
+      "C♯m7", "Bmaj7add6", "B♭m7", ["F/A♭", "Gm7"], "D♭/G", "A♭maj7add6",
+      "A♭m7", "G/D", "B♭maj7add6", "Emaj7♯11", "Dmaj7"
+    ],
+    "source": "manual-transcription",
+    "matchStatus": "manual",
+    "note": "Chord-symbol transcription from the scanned fusion chart; split chords divide their printed measure."
+  },
+  {
+    "name": "Mysterious Traveller",
+    "key": "F♯ minor",
+    "composer": "",
+    "style": "Reduced ostinato study",
+    "timeSignature": [3, 4],
+    "bars": [
+      "F♯m7", "F♯m7", "F♯m7", "F♯m7", "A", "A", "E", "E", "B", "B", "F♯m7", "F♯m7"
+    ],
+    "source": "harmonic-reduction",
+    "matchStatus": "reduction",
+    "note": "Reduced ostinato study: the supplied polymetric score has no printed chord symbols, so this is explicitly not an exact lead-sheet transcription."
+  },
+  {
+    "name": "Some Skunk Funk",
+    "key": "C minor",
+    "composer": "",
+    "style": "Fusion funk",
+    "timeSignature": [4, 4],
+    "bars": [
+      "Cm7", "Cm7", "Cm7", "Cm7", "Cm7", "Cm7", "Cm7", "Cm7",
+      "G/D♭", "D♭", "G/D♭", ["A♭/D♭", "D7♯9"], "G/D♭",
+      ["E♭/D♭", "E7", "D♭"], "G/D♭", ["E♭/D♭", "D♭"], "G/D♭", ["E♭/D♭", "D♭"]
+    ],
+    "source": "manual-transcription",
+    "matchStatus": "manual",
+    "note": "Chord-symbol transcription of the displayed vamp and ensemble figures."
+  },
+  {
+    "name": "Broad Way Blues",
+    "key": "E♭ dominant",
+    "composer": "",
+    "style": "Reduced blues-vamp study",
+    "timeSignature": [4, 4],
+    "bars": [
+      "E♭7", "E♭7", "E♭7", "E♭7", "E♭7", "E♭7", "E♭7", "E♭7",
+      "C7", "C7", "C7", "C7", "C7", "C7", "C7", "C7"
+    ],
+    "source": "harmonic-reduction",
+    "matchStatus": "reduction",
+    "note": "Reduced study of the two printed dominant-pedal regions; not a full transcription of the notated N.C. breaks and ensemble figures."
+  },
+  {
+    "name": "Kelo",
+    "key": "E♭ minor",
+    "composer": "",
+    "style": "Reduced harmonic study",
+    "timeSignature": [4, 4],
+    "bars": [
+      "E7♯11", "A♭7♭9", "B♭7", "E♭maj7", "Amaj7/B", "D7♯5♭9", "C7♯5♭9", "B♭7",
+      "C7♭9", "F7", "D7♭5/A", "G7♯5", "A♭maj7", "D♭maj7", "D♭7", "Eaug/B",
+      "C7♯11", "C7♭9"
+    ],
+    "source": "harmonic-reduction",
+    "matchStatus": "reduction",
+    "note": "Reduced study of the legible printed chord regions in the arrangement-based chart; not a bar-for-bar transcription."
+  },
+  {
+    "name": "Silver Hollow",
+    "key": "D dominant",
+    "composer": "",
+    "style": "Reduced fusion study",
+    "timeSignature": [4, 4],
+    "bars": [
+      ["D7", "E♭7"], ["D7", "E♭7"], ["D7", "E♭7"], ["D7", "E♭7"],
+      ["D7", "E♭7"], ["D7", "E♭7"], ["D7", "E♭7"], ["D7", "E♭7"],
+      "A7", "A7", "A7", "A7", "E♭7", "D7", "E♭7", "E♭7",
+      "G7♭5", "C7♭9", "Fm7", "G7/C", "Fm7", "Fm7", "Fm7/B♭", "E♭7"
+    ],
+    "source": "harmonic-reduction",
+    "matchStatus": "reduction",
+    "note": "Reduced study of the printed dominant vamp and contrasting harmonic regions; repeated ensemble figures are summarized."
+  },
+  {
+    "name": "The Sphinx",
+    "key": "A major",
+    "composer": "",
+    "style": "Reduced harmonic study",
+    "timeSignature": [4, 4],
+    "bars": [
+      "Amaj7", "Bm7", "F7", "E7/D", "C♯m7", "Bm7", "C♯m7", "Bm7", "E7",
+      "Amaj7", "C♯m7", "Bm7", "E7", "A♭"
+    ],
+    "source": "harmonic-reduction",
+    "matchStatus": "reduction",
+    "note": "Reduced study of the visible chord-symbol route; the fully notated final N.C. passage is intentionally omitted."
+  }
+]
