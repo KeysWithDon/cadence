@@ -93,6 +93,15 @@ function noteName(midi: number) {
   return `${NOTES[midi % 12]}${Math.floor(midi / 12) - 1}`;
 }
 
+function rightHandFinger(index: number, voiceCount: number) {
+  const fingerings: Record<number, number[]> = {
+    3: [1, 3, 5],
+    4: [1, 2, 3, 5],
+    5: [1, 2, 3, 4, 5],
+  };
+  return fingerings[voiceCount]?.[index] ?? index + 1;
+}
+
 let sharedAudioContext: AudioContext | null = null;
 
 async function ensureAudioContext() {
@@ -223,8 +232,10 @@ export default function Home() {
     style: voiceStyle,
     layout: voiceLayout,
     includeBass: true,
-    upperRange: [48, 76],
+    upperRange: [55, 81],
     bassRange: [36, 48],
+    minimumBassGap: 9,
+    maximumHandSpan: 12,
   }), [progression, voiceStyle, voiceLayout]);
   const voicedChord = voicedProgression[selected] ?? voicedProgression[0];
   const chordMidis = voicedChord?.upperVoices ?? [48,52,55,59];
@@ -585,19 +596,19 @@ export default function Home() {
         </div>}
 
         <div className="teacher" id="library">
-          <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>Bass and voice-led shapes across C2–C6</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
-          <div className="voicing-tabs">{["Voice-led position", "Open voicing", "Drop 2"].map((v,i)=><button className={voicing===i?"active":""} key={v} onClick={()=>setVoicing(i)}>{v}</button>)}</div>
+          <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>Three comfortable right-hand positions plus a separate bass</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
+          <div className="voicing-tabs">{["Lower position", "Voice-led middle", "Upper position"].map((v,i)=><button className={voicing===i?"active":""} key={v} onClick={()=>setVoicing(i)}>{v}</button>)}</div>
           <div className="piano-wrap">
             <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${noteName(bassMidi)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(noteName).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
             <div className="piano-shell"><div className="piano">
               {whites.map((midi) => {const cutLeft=blacks.includes(midi-1);const cutRight=blacks.includes(midi+1);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} className={`white ${cutLeft?"cut-left":""} ${cutRight?"cut-right":""} ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} key={midi} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>
-                <small>{noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">B</b>:chordMidis.includes(midi)&&fingers&&<b>{chordMidis.indexOf(midi)+1}</b>}
+                <small>{noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}
               </div>})}
-              {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">B</b>:chordMidis.includes(midi)&&fingers&&<b>{chordMidis.indexOf(midi)+1}</b>}</div>})}
+              {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}</div>})}
             </div></div>
             <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
           </div>
-          <div className="lesson-note"><span>✦</span><div><b>Why this works</b><p>{voicedChord?.diagnostics.summary} {voicing===1?"The same voice-leading is kept in a wider, open register.":voicing===2?"The second-highest voice is dropped without abandoning its melodic destination.":"Common tones, guide tones, melody, and bass are judged across the whole progression."}</p></div></div>
+          <div className="lesson-note"><span>✦</span><div><b>Why this works</b><p>{voicedChord?.diagnostics.summary} {voicing===0?"This lower right-hand position stays clear of the separate bass.":voicing===1?"This middle position balances a comfortable register with the smoothest available voice leading.":"This upper position moves the same required chord tones higher without increasing the hand stretch."} The right hand spans {voicedChord?.diagnostics.handSpan ?? 0} semitones.</p></div></div>
         </div>
       </section>
       <footer><span>Cadence</span><p>Make harmony feel like home.</p><small>Built for curious ears.</small></footer>

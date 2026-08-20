@@ -27,6 +27,8 @@ export type VoiceLeadingDiagnostics = {
   bassMovement: number;
   topMovement: number;
   resolutions: string[];
+  /** Distance from the lowest to highest note played by the upper hand. */
+  handSpan: number;
 };
 
 export type VoicedChord = {
@@ -44,7 +46,22 @@ export type VoiceLeadingOptions = {
   includeBass?: boolean;
   upperRange?: readonly [number, number];
   bassRange?: readonly [number, number];
+  /** Minimum semitone clearance between the bass and the lowest upper voice. */
+  minimumBassGap?: number;
+  /** Maximum upper-hand reach. Values above an octave are capped at 12 semitones. */
+  maximumHandSpan?: number;
   beamWidth?: number;
+};
+
+/** A practical maximum reach for a beginner or average one-handed chord shape. */
+export const MAXIMUM_AVERAGE_HAND_SPAN = 12;
+
+// The public enum is kept for compatibility, but each choice now means an
+// honest, compact register position rather than an unplayable spread.
+const REGISTER_PROFILES: Record<VoicingLayout, { center: number; top: number }> = {
+  close: { center: 63, top: 68 },
+  open: { center: 67, top: 72 },
+  drop2: { center: 71, top: 76 },
 };
 
 const NOTE_TO_PC: Record<string, number> = {
@@ -184,13 +201,15 @@ type Candidate = {
   parsed: ParsedChord;
   initial: number;
   signature: string;
+  requestedLayout: VoicingLayout;
 };
 
 type VoicePair = readonly [number, number];
 
 function roleSelections(parsed: ParsedChord) {
   const required = parsed.roles.filter((role) => role.required).sort((a, b) => b.priority - a.priority);
-  const desiredCount = Math.min(5, Math.max(4, required.length));
+  const hasWrittenColorTone = parsed.roles.some((role) => /7th|6th|9th|11th|13th/.test(role.name));
+  const desiredCount = Math.min(5, Math.max(hasWrittenColorTone ? 4 : 3, required.length));
   const optional = parsed.roles.filter((role) => !role.required).sort((a, b) => b.priority - a.priority);
   const base = required.slice(0, desiredCount).map((role) => mod(parsed.root + role.interval));
   const selections: number[][] = [];
@@ -233,27 +252,14 @@ function placementsForSelection(selection: number[], low: number, high: number) 
   return [...placements.values()];
 }
 
-function layoutVoicing(notes: number[], layout: VoicingLayout, low: number, high: number) {
+function compactVoicing(notes: number[], low: number, high: number, maximumHandSpan: number) {
   const close = [...notes].sort((a, b) => a - b);
-  if (layout === "close") return close;
-  if (layout === "drop2") {
-    if (close.length < 4) return close;
-    const dropped = [...close];
-    dropped[dropped.length - 2] -= 12;
-    const result = dropped.sort((a, b) => a - b);
-    return result[0] >= low && result[result.length - 1] <= high ? result : null;
-  }
-  const opened = close.map((note, index) => index % 2 === 0 ? note - 12 : note).sort((a, b) => a - b);
-  while (opened[0] < low) {
-    const shifted = opened.shift();
-    if (shifted === undefined) break;
-    opened.push(shifted + 24);
-    opened.sort((a, b) => a - b);
-  }
-  return opened[0] >= low && opened[opened.length - 1] <= high ? opened : null;
+  const closeSpan = close[close.length - 1] - close[0];
+  if (close[0] < low || close[close.length - 1] > high || closeSpan > maximumHandSpan || unique(close).length !== close.length) return null;
+  return close;
 }
 
-function bassChoices(parsed: ParsedChord, upper: number[], low: number, high: number) {
+function bassChoices(parsed: ParsedChord, upper: number[], low: number, high: number, minimumGap: number) {
   const third = parsed.roles.find((role) => /3rd/.test(role.name));
   const fifth = parsed.roles.find((role) => /5th/.test(role.name));
   const pcs = parsed.slashBass
@@ -262,56 +268,53 @@ function bassChoices(parsed: ParsedChord, upper: number[], low: number, high: nu
   const choices: number[] = [];
   for (const pc of pcs) {
     for (let midi = low; midi <= high; midi += 1) {
-      if (mod(midi) === pc && midi < upper[0] - 2) choices.push(midi);
+      if (mod(midi) === pc && midi <= upper[0] - minimumGap) choices.push(midi);
     }
   }
   if (choices.length) return choices;
   let fallback = low + mod(parsed.bass - low);
-  while (fallback >= upper[0] - 2 && fallback - 12 >= low) fallback -= 12;
-  return [fallback];
+  while (fallback > upper[0] - minimumGap && fallback - 12 >= low) fallback -= 12;
+  return fallback <= upper[0] - minimumGap ? [fallback] : [];
 }
 
-function buildCandidates(parsed: ParsedChord, options: Required<Pick<VoiceLeadingOptions, "style" | "layout" | "upperRange" | "bassRange">>) {
-  const [low, high] = options.upperRange;
+function buildCandidates(parsed: ParsedChord, options: Required<Pick<VoiceLeadingOptions, "style" | "layout" | "upperRange" | "bassRange" | "minimumBassGap" | "maximumHandSpan">>) {
+  // Keep the chord above the bass register even when a high bass inversion is
+  // selected. This is a low-interval-limit guard, not merely a scoring hint.
+  const low = Math.max(options.upperRange[0], options.bassRange[1] + options.minimumBassGap);
+  const high = options.upperRange[1];
   const voicings = new Map<string, number[]>();
   for (const selection of roleSelections(parsed)) {
     for (const placement of placementsForSelection(selection, low, high)) {
       const span = placement[placement.length - 1] - placement[0];
-      if (span > 19) continue;
-      const laidOut = layoutVoicing(placement, options.layout, low, high);
+      if (span > options.maximumHandSpan) continue;
+      const laidOut = compactVoicing(placement, low, high, options.maximumHandSpan);
       if (!laidOut) continue;
       const laidSpan = laidOut[laidOut.length - 1] - laidOut[0];
-      if (options.layout === "close" && laidSpan > 16) continue;
-      if (options.layout !== "close" && laidSpan < 11) continue;
+      if (laidSpan > options.maximumHandSpan) continue;
       voicings.set(laidOut.join(","), laidOut);
     }
   }
 
   const candidates: Candidate[] = [];
+  const registerProfile = REGISTER_PROFILES[options.layout];
   for (const upper of voicings.values()) {
-    for (const bass of bassChoices(parsed, upper, options.bassRange[0], options.bassRange[1])) {
+    for (const bass of bassChoices(parsed, upper, options.bassRange[0], options.bassRange[1], options.minimumBassGap)) {
       const center = upper.reduce((sum, note) => sum + note, 0) / upper.length;
       const top = upper[upper.length - 1];
       const span = top - upper[0];
-      const nonRootBass = mod(bass) === parsed.root ? 0 : options.style === "ccm" ? 8 : 14;
+      const bassGap = upper[0] - bass;
+      const nonRootBass = mod(bass) === parsed.root ? 0 : options.style === "ccm" ? 18 : 14;
       const doubledRoot = upper.filter((note) => mod(note) === parsed.root).length;
       const rootlessReward = (options.style === "jazz" || options.style === "gospel") && parsed.roles.some((role) => /7th/.test(role.name)) && doubledRoot === 0 ? -2 : 0;
-      const targetSpan = options.layout === "close" ? 11 : 18;
-      const initial = Math.abs(center - 62) * 0.8 + Math.abs(top - 69) * 0.45 + Math.abs(span - targetSpan) * 0.35 + nonRootBass + Math.max(0, doubledRoot - 1) * 4 + rootlessReward;
-      candidates.push({ upper, bass, parsed, initial, signature: `${bass}|${upper.join(",")}` });
+      const preferredBassGap = options.style === "ccm" ? 12 : 15;
+      const handComfort = Math.abs(span - 9) * 0.65 + Math.max(0, span - 10) * 7;
+      const initial = Math.abs(center - registerProfile.center) * 2.2 + Math.abs(top - registerProfile.top) + handComfort + Math.abs(bassGap - preferredBassGap) * 0.3 + nonRootBass + Math.max(0, doubledRoot - 1) * 4 + rootlessReward;
+      candidates.push({ upper, bass, parsed, initial, signature: `${bass}|${upper.join(",")}`, requestedLayout: options.layout });
     }
   }
 
   if (!candidates.length) {
-    const pcs = parsed.roles.slice(0, 4).map((role) => mod(parsed.root + role.interval));
-    const upper = pcs.map((pc, index) => {
-      let midi = 52 + pc;
-      while (midi < low) midi += 12;
-      while (index && midi <= (pcs[index - 1] ?? low)) midi += 12;
-      return Math.min(midi, high);
-    }).sort((a, b) => a - b);
-    const bass = bassChoices(parsed, upper, options.bassRange[0], options.bassRange[1])[0];
-    candidates.push({ upper, bass, parsed, initial: 100, signature: `${bass}|${upper.join(",")}` });
+    throw new RangeError(`No ${options.maximumHandSpan}-semitone upper-hand voicing for ${parsed.symbol} fits the requested register.`);
   }
   return candidates.sort((a, b) => a.initial - b.initial || a.signature.localeCompare(b.signature)).slice(0, 24);
 }
@@ -401,6 +404,9 @@ function transitionCost(previous: Candidate, current: Candidate, style: VoiceLea
   cost += Math.abs(topMove) <= 2 ? -4 : Math.abs(topMove) > 4 ? (Math.abs(topMove) - 4) * (style === "ccm" ? 8 : 5) : 0;
   const bassMove = current.bass - previous.bass;
   cost += MOVE_COST[Math.min(12, Math.abs(bassMove))] * 0.65;
+  // Very wide spacing is legal, but gently prefer a cohesive left-hand/right-
+  // hand relationship once the lowest upper voice exceeds two octaves above.
+  cost += Math.max(0, current.upper[0] - current.bass - 24) * 1.25;
   if (!current.parsed.slashBass && mod(current.bass) !== current.parsed.root) cost += style === "ccm" ? 9 : 16;
   if (!previous.parsed.slashBass && !current.parsed.slashBass && mod(previous.bass) !== previous.parsed.root && mod(current.bass) !== current.parsed.root) cost += 10;
 
@@ -426,11 +432,14 @@ function transitionCost(previous: Candidate, current: Candidate, style: VoiceLea
   }
 
   if (previous.parsed.symbol === current.parsed.symbol) {
-    if (previous.upper.join(",") === current.upper.join(",")) cost += 16;
+    if (previous.upper.join(",") === current.upper.join(",")) cost += 80;
     else if (heldPcs.length >= Math.min(3, commonPcs.length)) cost -= 3;
   }
   const center = current.upper.reduce((sum, note) => sum + note, 0) / current.upper.length;
-  cost += Math.abs(center - 62) * 0.55;
+  const top = current.upper[current.upper.length - 1];
+  const span = top - current.upper[0];
+  const registerProfile = REGISTER_PROFILES[current.requestedLayout];
+  cost += Math.abs(center - registerProfile.center) * 1.5 + Math.abs(top - registerProfile.top) * 0.45 + Math.max(0, span - 10) * 5;
   return cost;
 }
 
@@ -450,15 +459,18 @@ function melodicRecoveryCost(earlier: Candidate | undefined, previous: Candidate
 }
 
 function diagnosticsFor(previous: Candidate | undefined, current: Candidate): VoiceLeadingDiagnostics {
+  const handSpan = current.upper[current.upper.length - 1] - current.upper[0];
   if (!previous) {
     const important = current.parsed.roles.filter((role) => role.required && role.name !== "root").slice(0, 3).map((role) => role.name);
+    const position = current.requestedLayout === "close" ? "lower" : current.requestedLayout === "drop2" ? "upper" : "middle";
     return {
-      summary: `Starts in a balanced register with ${important.join(", ") || "the defining chord tones"} clearly voiced.`,
+      summary: `Starts in a comfortable ${position} register with ${important.join(", ") || "the defining chord tones"} clearly voiced.`,
       commonTonesHeld: 0,
       upperMovement: [],
       bassMovement: 0,
       topMovement: 0,
       resolutions: [],
+      handSpan,
     };
   }
   const pairs = voicePairs(previous.upper, current.upper);
@@ -480,6 +492,7 @@ function diagnosticsFor(previous: Candidate | undefined, current: Candidate): Vo
     bassMovement,
     topMovement,
     resolutions,
+    handSpan,
   };
 }
 
@@ -491,14 +504,16 @@ export function voiceLeadProgression(chords: string[], options: VoiceLeadingOpti
     style: options.style ?? "traditional",
     layout: options.layout ?? "close",
     includeBass: options.includeBass ?? true,
-    upperRange: options.upperRange ?? [48, 76] as const,
+    upperRange: options.upperRange ?? [55, 81] as const,
     bassRange: options.bassRange ?? [36, 48] as const,
+    minimumBassGap: Math.max(7, Math.round(options.minimumBassGap ?? 9)),
+    maximumHandSpan: Math.min(MAXIMUM_AVERAGE_HAND_SPAN, Math.max(1, Math.round(options.maximumHandSpan ?? MAXIMUM_AVERAGE_HAND_SPAN))),
     beamWidth: Math.max(8, options.beamWidth ?? 20),
   };
   const cache = new Map<string, Candidate[]>();
   const parsed = chords.map(parseChordSymbol);
   const candidatesFor = (chord: ParsedChord) => {
-    const key = `${chord.symbol}|${resolvedOptions.style}|${resolvedOptions.layout}|${resolvedOptions.upperRange.join("-")}|${resolvedOptions.bassRange.join("-")}`;
+    const key = `${chord.symbol}|${resolvedOptions.style}|${resolvedOptions.layout}|${resolvedOptions.upperRange.join("-")}|${resolvedOptions.bassRange.join("-")}|${resolvedOptions.minimumBassGap}|${resolvedOptions.maximumHandSpan}`;
     const cached = cache.get(key);
     if (cached) return cached;
     const candidates = buildCandidates(chord, resolvedOptions);
