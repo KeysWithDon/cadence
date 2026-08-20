@@ -163,13 +163,13 @@ class SourceChart:
 NO_CHORD = re.compile(r"^(?:N\.?C\.?|N/?C)(?:x\d+)?$", re.IGNORECASE)
 ROOT = re.compile(r"^([A-Ga-g])([#b♯♭]?)(.*)$")
 PITCH_SPELLING = {
-    "C": "C", "C#": "C♯", "Db": "C♯",
-    "D": "D", "D#": "E♭", "Eb": "E♭",
-    "E": "E", "Fb": "E", "E#": "F",
-    "F": "F", "F#": "F♯", "Gb": "F♯",
-    "G": "G", "G#": "A♭", "Ab": "A♭",
-    "A": "A", "A#": "B♭", "Bb": "B♭",
-    "B": "B", "Cb": "B", "B#": "C",
+    "C": "C", "C#": "C♯", "Cb": "C♭",
+    "D": "D", "D#": "D♯", "Db": "D♭",
+    "E": "E", "E#": "E♯", "Eb": "E♭",
+    "F": "F", "F#": "F♯", "Fb": "F♭",
+    "G": "G", "G#": "G♯", "Gb": "G♭",
+    "A": "A", "A#": "A♯", "Ab": "A♭",
+    "B": "B", "B#": "B♯", "Bb": "B♭",
 }
 
 
