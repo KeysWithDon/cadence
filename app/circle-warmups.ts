@@ -1,4 +1,6 @@
-/** Pitch spellings shared by the app's tonic-note selector. */
+import { parseSpelledNote, spellRomanDegree } from "./music-theory.ts";
+
+/** Practical starting spellings shared by the app's tonic-note selector. */
 export const CIRCLE_NOTES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"] as const;
 
 export type CircleNote = (typeof CIRCLE_NOTES)[number];
@@ -33,7 +35,7 @@ export type CircleWarmupEvent = {
   /** 0 is the opening home chord; 12 is the final return home. */
   legIndex: number;
   /** The destination this event prepares or states. */
-  destinationNote: CircleNote;
+  destinationNote: string;
   approach: CircleApproach;
   /** Present only on approach events. */
   approachStep?: number;
@@ -111,17 +113,10 @@ export const CIRCLE_APPROACH_OPTIONS: readonly CircleApproachOption[] = [
   },
 ] as const;
 
-const mod12 = (value: number) => ((value % 12) + 12) % 12;
+const FOURTHS=["C","F","B♭","E♭","A♭","D♭","G♭","B","E","A","D","G"];
+const FIFTHS=["C","G","D","A","E","B","F♯","D♭","A♭","E♭","B♭","F"];
 
-function noteAt(root: number, offset = 0): CircleNote {
-  return CIRCLE_NOTES[mod12(root + offset)];
-}
-
-function chord(root: number, offset: number, suffix: string) {
-  return `${noteAt(root, offset)}${suffix}`;
-}
-
-function targetChord(note: CircleNote, quality: CircleTargetQuality) {
+function targetChord(note: string, quality: CircleTargetQuality) {
   const suffix = quality === "major7" ? "maj7"
     : quality === "dominant7" ? "7"
     : quality === "minor7" ? "m7"
@@ -133,30 +128,33 @@ function targetChord(note: CircleNote, quality: CircleTargetQuality) {
  * Return all twelve destinations plus the final return to the starting key.
  * Fourths advance five semitones; fifths advance seven semitones.
  */
-export function circleDestinations(startNote: CircleNote, direction: CircleDirection): CircleNote[] {
-  const start = CIRCLE_NOTES.indexOf(startNote);
-  if (start < 0) throw new RangeError(`Unknown circle start note: ${startNote}`);
-  const step = direction === "fourths" ? 5 : direction === "fifths" ? 7 : 0;
-  if (!step) throw new RangeError(`Unknown circle direction: ${direction}`);
-  return Array.from({ length: 13 }, (_, index) => noteAt(start, step * index));
+export function circleDestinations(startNote: CircleNote, direction: CircleDirection): string[] {
+  const sequence=direction==="fourths"?FOURTHS:direction==="fifths"?FIFTHS:null;
+  if(!sequence) throw new RangeError(`Unknown circle direction: ${direction}`);
+  const startPc=parseSpelledNote(startNote).pitchClass;
+  const start=sequence.findIndex(note=>parseSpelledNote(note).pitchClass===startPc);
+  if(start<0) throw new RangeError(`Unknown circle start note: ${startNote}`);
+  const rotated=Array.from({length:12},(_,index)=>sequence[(start+index)%12]);
+  rotated[0]=startNote;
+  return [...rotated,startNote];
 }
 
 /** Build the selected route into one destination without adding the target. */
-export function circleApproachChords(targetNote: CircleNote, approach: CircleApproach): string[] {
-  const root = CIRCLE_NOTES.indexOf(targetNote);
-  if (root < 0) throw new RangeError(`Unknown circle target note: ${targetNote}`);
+export function circleApproachChords(targetNote: string, approach: CircleApproach): string[] {
+  parseSpelledNote(targetNote);
+  const degree=(value:1|2|3|4|5|6|7,alteration=0)=>spellRomanDegree(targetNote,value,alteration);
 
   switch (approach) {
     case "direct": return [];
-    case "v-of-target": return [chord(root, 7, "7")];
-    case "ii-v": return [chord(root, 2, "m7"), chord(root, 7, "7")];
-    case "iii-vi": return [chord(root, 4, "m7"), chord(root, 9, "7")];
-    case "vii-dim7": return [chord(root, 11, "dim7")];
-    case "tritone-dominant": return [chord(root, 1, "7")];
-    case "backdoor-ii-v": return [chord(root, 5, "m7"), chord(root, 10, "7")];
-    case "tritone-ii-v": return [chord(root, 8, "m7"), chord(root, 1, "7")];
-    case "iv-iv-minor": return [chord(root, 5, "maj7"), chord(root, 5, "m7")];
-    case "gospel-chromatic-pull": return [chord(root, 9, "7"), chord(root, 8, "7"), chord(root, 7, "7")];
+    case "v-of-target": return [`${degree(5)}7`];
+    case "ii-v": return [`${degree(2)}m7`, `${degree(5)}7`];
+    case "iii-vi": return [`${degree(3)}m7`, `${degree(6)}7`];
+    case "vii-dim7": return [`${degree(7)}dim7`];
+    case "tritone-dominant": return [`${degree(2,-1)}7`];
+    case "backdoor-ii-v": return [`${degree(4)}m7`, `${degree(7,-1)}7`];
+    case "tritone-ii-v": return [`${degree(6,-1)}m7`, `${degree(2,-1)}7`];
+    case "iv-iv-minor": return [`${degree(4)}maj7`, `${degree(4)}m7`];
+    case "gospel-chromatic-pull": return [`${degree(6)}7`, `${degree(6,-1)}7`, `${degree(5)}7`];
     default: throw new RangeError(`Unknown circle approach: ${approach}`);
   }
 }

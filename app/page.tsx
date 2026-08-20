@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CIRCLE_APPROACH_OPTIONS,
   buildCircleWarmup,
@@ -11,22 +11,10 @@ import {
 import { standardBeatsPerBar, standardTimeline, standardTimingLabel, type StandardSource } from "./standard-timeline";
 import { STANDARDS } from "./standards";
 import { voiceLeadProgression, type VoicedChord, type VoiceLeadingStyle, type VoicingLayout } from "./voice-leading";
+import { buildDiatonicSevenths, parseChordRoot, spellChordPitch, spellRomanDegree } from "./music-theory";
 
 const NOTES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
-const MAJOR: Record<string, string[]> = {
-  C: ["Cmaj7", "Dm7", "Em7", "Fmaj7", "G7", "Am7"],
-  G: ["Gmaj7", "Am7", "Bm7", "Cmaj7", "D7", "Em7"],
-  D: ["Dmaj7", "Em7", "F♯m7", "Gmaj7", "A7", "Bm7"],
-  A: ["Amaj7", "Bm7", "C♯m7", "Dmaj7", "E7", "F♯m7"],
-  E: ["Emaj7", "F♯m7", "G♯m7", "Amaj7", "B7", "C♯m7"],
-  F: ["Fmaj7", "Gm7", "Am7", "B♭maj7", "C7", "Dm7"],
-  "B♭": ["B♭maj7", "Cm7", "Dm7", "E♭maj7", "F7", "Gm7"],
-  "C♯": ["C♯maj7", "D♯m7", "Fm7", "F♯maj7", "G♯7", "A♯m7"],
-  "E♭": ["E♭maj7", "Fm7", "Gm7", "A♭maj7", "B♭7", "Cm7"],
-  "F♯": ["F♯maj7", "G♯m7", "A♯m7", "Bmaj7", "C♯7", "D♯m7"],
-  "A♭": ["A♭maj7", "B♭m7", "Cm7", "C♯maj7", "E♭7", "Fm7"],
-  B: ["Bmaj7", "C♯m7", "D♯m7", "Emaj7", "F♯7", "G♯m7"],
-};
+const MAJOR: Record<string,string[]> = Object.fromEntries(NOTES.map(note=>[note,buildDiatonicSevenths(note).slice(0,6)]));
 
 const PROGRESSIONS = [
   { name: "Pop anthem · I–V–vi–IV", degrees: [0,4,5,3] },
@@ -44,9 +32,9 @@ type GeneratorMode = "common" | "target" | "resolve" | "circle" | "standards";
 
 function parseChord(chord: string) {
   const primary = chord.split("(")[0];
-  const rootName = [...NOTES].sort((a,b)=>b.length-a.length).find((n) => primary.startsWith(n));
-  const root = rootName ? NOTES.indexOf(rootName) : 0;
-  const suffix = rootName ? primary.slice(rootName.length) : primary;
+  const parsedRoot = parseChordRoot(primary);
+  const root = parsedRoot.root.pitchClass;
+  const suffix = parsedRoot.suffix;
   const hasExtension = /7|9|11|13/.test(suffix);
   const isMinor = suffix.startsWith("m") && !suffix.startsWith("maj");
   const quality = /mMaj7/i.test(suffix) ? "minorMajor7"
@@ -66,7 +54,7 @@ function parseChord(chord: string) {
 }
 
 function setChordComplexity(chord:string, level:"triad"|"7"|"9"|"11"|"13") {
-  const rootName = [...NOTES].sort((a,b)=>b.length-a.length).find(n=>chord.startsWith(n)) || "C";
+  const rootName = parseChordRoot(chord).root.display;
   if (chord.includes("m6")) return `${rootName}m6`;
   const family = chord.includes("♭5") ? "half-diminished" : chord.includes("dim") ? "diminished" : chord.includes("aug") ? "augmented" : chord.includes("maj") ? "major" : chord.includes("m") ? "minor" : "dominant";
   if (family === "half-diminished") return level==="triad"?`${rootName}dim`:`${rootName}m7♭5`;
@@ -92,6 +80,8 @@ function musicalComplexity(chord:string, requested:"7"|"9"|"11"|"13") {
 function noteName(midi: number) {
   return `${NOTES[midi % 12]}${Math.floor(midi / 12) - 1}`;
 }
+
+function chordNoteName(midi:number,chord:string){return `${spellChordPitch(chord,midi%12)}${Math.floor(midi/12)-1}`}
 
 function rightHandFinger(index: number, voiceCount: number) {
   const fingerings: Record<number, number[]> = {
@@ -158,21 +148,20 @@ function expandDegrees(degrees: number[], length: number) {
 
 function leadToTarget(chords: string[], target: string, quality:"major"|"minor"|"dominant"|"diminished"|"augmented"="major") {
   const result = [...chords];
-  const root = NOTES.indexOf(target);
-  if (root < 0 || result.length === 0) return result;
+  if (result.length === 0) return result;
   result[result.length-1] = targetChord(target,quality);
   if (quality === "minor") {
-    if (result.length >= 2) result[result.length-2] = `${NOTES[(root+7)%12]}7♭9`;
-    if (result.length >= 3) result[result.length-3] = `${NOTES[(root+2)%12]}m7♭5`;
+    if (result.length >= 2) result[result.length-2] = `${spellRomanDegree(target,5)}7♭9`;
+    if (result.length >= 3) result[result.length-3] = `${spellRomanDegree(target,2)}m7♭5`;
   } else if (quality === "diminished") {
-    if (result.length >= 2) result[result.length-2] = `${NOTES[(root+11)%12]}dim7`;
-    if (result.length >= 3) result[result.length-3] = `${NOTES[(root+7)%12]}7♭9`;
+    if (result.length >= 2) result[result.length-2] = `${spellRomanDegree(target,7)}dim7`;
+    if (result.length >= 3) result[result.length-3] = `${spellRomanDegree(target,5)}7♭9`;
   } else if (quality === "augmented") {
-    if (result.length >= 2) result[result.length-2] = `${NOTES[(root+7)%12]}7♯5`;
-    if (result.length >= 3) result[result.length-3] = `${NOTES[(root+2)%12]}m7`;
+    if (result.length >= 2) result[result.length-2] = `${spellRomanDegree(target,5)}7♯5`;
+    if (result.length >= 3) result[result.length-3] = `${spellRomanDegree(target,2)}m7`;
   } else {
-    if (result.length >= 2) result[result.length-2] = `${NOTES[(root+7)%12]}7`;
-    if (result.length >= 3) result[result.length-3] = `${NOTES[(root+2)%12]}m7`;
+    if (result.length >= 2) result[result.length-2] = `${spellRomanDegree(target,5)}7`;
+    if (result.length >= 3) result[result.length-3] = `${spellRomanDegree(target,2)}m7`;
   }
   return result;
 }
@@ -181,7 +170,7 @@ function resolutionPath(sourceNote:string, sourceQuality:"major"|"minor"|"domina
   const source = targetChord(sourceNote,sourceQuality);
   const cadence = leadToTarget([source,source,source],target,targetQuality);
   const bridgeLength = Math.max(0,length-4);
-  const bridge = Array.from({length:bridgeLength},(_,i)=>i%2===0?`${NOTES[(NOTES.indexOf(target)+9)%12]}m7`:`${NOTES[(NOTES.indexOf(target)+2)%12]}m7`);
+  const bridge = Array.from({length:bridgeLength},(_,i)=>i%2===0?`${spellRomanDegree(target,6)}m7`:`${spellRomanDegree(target,2)}m7`);
   return [source,...bridge,...cadence].slice(0,length);
 }
 
@@ -190,6 +179,8 @@ function audibleNotes(event: VoicedChord, includeBass: boolean) {
 }
 
 export default function Home() {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [key, setKey] = useState("C");
   const [generatorMode, setGeneratorMode] = useState<GeneratorMode>("common");
   const [circleDirection, setCircleDirection] = useState<CircleDirection>("fourths");
@@ -218,6 +209,22 @@ export default function Home() {
   const [substitutionHistory, setSubstitutionHistory] = useState<Array<{progression:string[];durations:number[];selected:number}>>([]);
   const playbackTimers = useRef<number[]>([]);
   const progressionRowRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const themeFrame=requestAnimationFrame(()=>setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light"));
+    const syncFullscreen=()=>setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange",syncFullscreen);
+    return ()=>{cancelAnimationFrame(themeFrame);document.removeEventListener("fullscreenchange",syncFullscreen)};
+  }, []);
+
+  function toggleTheme() {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+    document.documentElement.style.colorScheme = nextTheme;
+    localStorage.setItem("cadence-theme", nextTheme);
+  }
+  async function toggleFullscreen(){if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()}
   const chordCardRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const chord = progression[selected];
@@ -507,26 +514,26 @@ export default function Home() {
   const nextDestination = editTarget === null ? chord : progression[(editTarget+1)%progression.length];
   const editDestination = substitutionTarget === "next" ? nextDestination : `${substitutionTarget}maj7`;
   const destination = parseChord(editDestination);
-  const destinationRoot = destination.root;
+  const destinationRootName = parseChordRoot(editDestination).root.display;
   const minorDestination = destination.quality === "minor" || destination.quality === "m7" || destination.quality === "halfDim7";
   const majorDestination = ["major","major6","maj7"].includes(destination.quality);
   const stableDestination = !["dim","dim7","aug","aug7","halfDim7"].includes(destination.quality);
-  const n = (offset:number) => NOTES[(destinationRoot+offset+12)%12];
+  const degree = (value:1|2|3|4|5|6|7,alteration=0) => spellRomanDegree(destinationRootName,value,alteration);
   const substitutionOptions = [
-    {roman:"V/next", name:"Secondary dominant", chords:[`${n(7)}7`], allowed:true},
-    {roman:"vii°7/next", name:"Leading diminished", chords:[`${n(11)}dim7`], allowed:true},
-    {roman:"♭II7/next", name:"Tritone dominant", chords:[`${n(1)}7`], allowed:stableDestination},
-    {roman:minorDestination?"iiø–V7alt/next":"ii–V/next", name:minorDestination?"Minor two-five":"Major two-five", chords:minorDestination?[`${n(2)}m7♭5`,`${n(7)}7♭9`]:[`${n(2)}m7`,`${n(7)}7`], allowed:stableDestination},
-    {roman:"iii–VI/next", name:"Three-six approach", chords:[`${n(4)}m7`,`${n(9)}7`], allowed:stableDestination},
-    {roman:"iv–♭VII/next", name:"Backdoor two-five", chords:[`${n(5)}m7`,`${n(10)}7`], allowed:majorDestination},
-    {roman:"♭vi–♭II/next", name:"Tritone two-five", chords:[`${n(8)}m7`,`${n(1)}7`], allowed:majorDestination},
-    {roman:"IV–iv/next", name:"Major-to-minor plagal", chords:[`${n(5)}maj7`,`${n(5)}m7`], allowed:majorDestination},
-    {roman:"♭IImaj7/next", name:"Phrygian borrowed color", chords:[`${n(1)}maj7`], allowed:majorDestination},
-    {roman:"♭VImaj7/next", name:"Aeolian borrowed color", chords:[`${n(8)}maj7`], allowed:majorDestination},
-    {roman:"iiø/next", name:"Half-diminished V alternative", chords:[`${n(2)}m7♭5`], allowed:majorDestination},
-    {roman:"ivm6/next", name:"Minor-six V alternative", chords:[`${n(5)}m6`], allowed:majorDestination},
-    {roman:"ivø/next", name:"Borrowed half-diminished", chords:[`${n(5)}m7♭5`], allowed:majorDestination},
-    {roman:"♭VIm6/next", name:"Flat-six minor alternative", chords:[`${n(8)}m6`], allowed:majorDestination},
+    {roman:"V/next", name:"Secondary dominant", chords:[`${degree(5)}7`], allowed:true},
+    {roman:"vii°7/next", name:"Leading diminished", chords:[`${degree(7)}dim7`], allowed:true},
+    {roman:"♭II7/next", name:"Tritone dominant", chords:[`${degree(2,-1)}7`], allowed:stableDestination},
+    {roman:minorDestination?"iiø–V7alt/next":"ii–V/next", name:minorDestination?"Minor two-five":"Major two-five", chords:minorDestination?[`${degree(2)}m7♭5`,`${degree(5)}7♭9`]:[`${degree(2)}m7`,`${degree(5)}7`], allowed:stableDestination},
+    {roman:"iii–VI/next", name:"Three-six approach", chords:[`${degree(3)}m7`,`${degree(6)}7`], allowed:stableDestination},
+    {roman:"iv–♭VII/next", name:"Backdoor two-five", chords:[`${degree(4)}m7`,`${degree(7,-1)}7`], allowed:majorDestination},
+    {roman:"♭vi–♭II/next", name:"Tritone two-five", chords:[`${degree(6,-1)}m7`,`${degree(2,-1)}7`], allowed:majorDestination},
+    {roman:"IV–iv/next", name:"Major-to-minor plagal", chords:[`${degree(4)}maj7`,`${degree(4)}m7`], allowed:majorDestination},
+    {roman:"♭IImaj7/next", name:"Phrygian borrowed color", chords:[`${degree(2,-1)}maj7`], allowed:majorDestination},
+    {roman:"♭VImaj7/next", name:"Aeolian borrowed color", chords:[`${degree(6,-1)}maj7`], allowed:majorDestination},
+    {roman:"iiø/next", name:"Half-diminished V alternative", chords:[`${degree(2)}m7♭5`], allowed:majorDestination},
+    {roman:"ivm6/next", name:"Minor-six V alternative", chords:[`${degree(4)}m6`], allowed:majorDestination},
+    {roman:"ivø/next", name:"Borrowed half-diminished", chords:[`${degree(4)}m7♭5`], allowed:majorDestination},
+    {roman:"♭VIm6/next", name:"Flat-six minor alternative", chords:[`${degree(6,-1)}m6`], allowed:majorDestination},
   ];
   const blockedOptions = substitutionOptions.filter(option=>!option.allowed);
   const activeCircleApproach = CIRCLE_APPROACH_OPTIONS.find(option=>option.id===circleApproach) ?? CIRCLE_APPROACH_OPTIONS[2];
@@ -547,8 +554,7 @@ export default function Home() {
     <main>
       <header className="topbar">
         <a className="brand" href="#studio"><span className="brandmark">♩</span> Cadence</a>
-        <nav><a href="#studio">Studio</a><a href="#learn">Learn</a><a href="#library">Library</a></nav>
-        <button className="ghost" onClick={reset}>Start over</button>
+        <div className="topbar-actions"><button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} aria-pressed={theme === "dark"}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span><b>{theme === "dark" ? "Light" : "Dark"}</b></button><button className="theme-toggle" type="button" onClick={toggleFullscreen} aria-label={isFullscreen?"Exit full screen":"Enter full screen"} aria-pressed={isFullscreen}><span aria-hidden="true">{isFullscreen?"↙":"↗"}</span><b>{isFullscreen?"Exit full screen":"Full screen"}</b></button><button className="ghost" onClick={reset}>Start over</button></div>
       </header>
 
       <section className="hero" id="studio">
@@ -599,10 +605,10 @@ export default function Home() {
           <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>Three comfortable right-hand positions plus a separate bass</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
           <div className="voicing-tabs">{["Lower position", "Voice-led middle", "Upper position"].map((v,i)=><button className={voicing===i?"active":""} key={v} onClick={()=>setVoicing(i)}>{v}</button>)}</div>
           <div className="piano-wrap">
-            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${noteName(bassMidi)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(noteName).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
+            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
             <div className="piano-shell"><div className="piano">
               {whites.map((midi) => {const cutLeft=blacks.includes(midi-1);const cutRight=blacks.includes(midi+1);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} className={`white ${cutLeft?"cut-left":""} ${cutRight?"cut-right":""} ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} key={midi} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>
-                <small>{noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}
+                <small>{keyboardNotes.includes(midi)?chordNoteName(midi,chord):noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}
               </div>})}
               {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}</div>})}
             </div></div>

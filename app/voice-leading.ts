@@ -1,3 +1,5 @@
+import { parseSpelledNote } from "./music-theory.ts";
+
 export type VoiceLeadingStyle = "traditional" | "jazz" | "gospel" | "ccm";
 export type VoicingLayout = "close" | "open" | "drop2";
 
@@ -64,12 +66,6 @@ const REGISTER_PROFILES: Record<VoicingLayout, { center: number; top: number }> 
   drop2: { center: 71, top: 76 },
 };
 
-const NOTE_TO_PC: Record<string, number> = {
-  C: 0, "C#": 1, Db: 1, D: 2, "D#": 3, Eb: 3, E: 4,
-  Fb: 4, "E#": 5, F: 5, "F#": 6, Gb: 6, G: 7,
-  "G#": 8, Ab: 8, A: 9, "A#": 10, Bb: 10, B: 11, Cb: 11,
-};
-
 const PC_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
 const MOVE_COST = [0, 1, 2, 4, 7, 11, 17, 24, 32, 42, 54, 68, 84];
 
@@ -79,12 +75,7 @@ const midiName = (midi: number) => `${PC_NAMES[mod(midi)]}${Math.floor(midi / 12
 
 function pitchClass(note: string | undefined) {
   if (!note) return 0;
-  const normalized = note
-    .trim()
-    .replace("♯", "#")
-    .replace("♭", "b")
-    .replace(/^([a-g])/, (match) => match.toUpperCase());
-  return NOTE_TO_PC[normalized] ?? 0;
+  try{return parseSpelledNote(note).pitchClass}catch{return 0}
 }
 
 function addRole(roles: ChordRole[], interval: number, name: string, required: boolean, priority: number) {
@@ -106,15 +97,17 @@ export function parseChordSymbol(symbol: string): ParsedChord {
     .replace(/[‐‑‒–—−]/g, "-")
     .replace(/♯/g, "#")
     .replace(/♭/g, "b")
+    .replace(/𝄪/g, "##")
+    .replace(/𝄫/g, "bb")
     .replace(/Δ/g, "maj")
     .replace(/ø/g, "m7b5")
     .replace(/°/g, "dim")
     .replace(/\s+/g, "");
-  const rootMatch = compact.match(/^([A-Ga-g])([#b]?)/);
+  const rootMatch = compact.match(/^([A-Ga-g])((?:##|bb|#|b)?)/);
   const rootName = rootMatch ? `${rootMatch[1].toUpperCase()}${rootMatch[2]}` : "C";
   const root = pitchClass(rootName);
   const suffixWithSlash = rootMatch ? compact.slice(rootMatch[0].length) : compact;
-  const slashMatch = suffixWithSlash.match(/\/([A-Ga-g])([#b]?)(?=$|[^a-z])/);
+  const slashMatch = suffixWithSlash.match(/\/([A-Ga-g])((?:##|bb|#|b)?)(?=$|[^a-z])/);
   const bass = slashMatch ? pitchClass(`${slashMatch[1].toUpperCase()}${slashMatch[2]}`) : root;
   const suffix = (slashMatch ? suffixWithSlash.slice(0, slashMatch.index) : suffixWithSlash).replace(/[()]/g, "");
   const lower = suffix.toLowerCase();

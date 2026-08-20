@@ -126,3 +126,33 @@
 }
 
 .tempo b{white-space:nowrap}
+
+/* Persistent theme and focused, no-scroll desktop workspace. */
+.topbar-actions{display:flex;align-items:center;gap:8px}.theme-toggle{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--paper);color:var(--ink);padding:7px 11px;border-radius:99px;font:600 10px Manrope,sans-serif}.theme-toggle span{font-size:15px;line-height:1}.theme-toggle b{font:inherit}.theme-toggle:hover{border-color:var(--orange)}.theme-toggle:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
+html[data-theme="dark"] .topbar{background:rgba(16,23,19,.94)}
+html[data-theme="dark"] .hero{background:radial-gradient(circle at 82% 20%,#263b32 0,transparent 29%),var(--cream)}
+html[data-theme="dark"] .generator-card{background:#0a110e;color:#f7faf8}
+html[data-theme="dark"] .generator-card select,html[data-theme="dark"] .generator-card .chart-extensions{color:#f7faf8}
+html[data-theme="dark"] .generator-card select option{color:#14231d;background:#fffdf8}
+html[data-theme="dark"] .chord-tile{background:#202c27;color:#eef4f0;border-color:#34433c}
+html[data-theme="dark"] .chord-tile:hover{background:#283a32}
+html[data-theme="dark"] .chord-tile.active{background:var(--orange);color:#fff;border-color:var(--orange)}
+html[data-theme="dark"] .add-tile{color:#a7b2ac;border-color:#5d6c65}
+html[data-theme="dark"] .substitution-compact{background:#25362f;color:#eef4f0}
+html[data-theme="dark"] .substitution-compact label{color:#c6d0cb}
+html[data-theme="dark"] .substitution-compact select,html[data-theme="dark"] .substitution-compact .blocked-info-trigger{background:#111b17;color:#eef4f0;border-color:#58675f}
+html[data-theme="dark"] .substitution-compact option{color:#14231d;background:#fffdf8}
+html[data-theme="dark"] .substitution-compact>button{color:#eef4f0;border-color:#58675f}
+html[data-theme="dark"] .substitution-compact .blocked-info{background:#17231e;color:#dbe4df;border-color:#4b5c54}
+html[data-theme="dark"] .undo-sub,html[data-theme="dark"] .substitute-trigger{background:#111b17;color:#eef4f0;border-color:#44534c}
+html[data-theme="dark"] .substitute-trigger:hover,html[data-theme="dark"] .substitute-trigger.open{background:#eef4f0;color:#14231d}
+html[data-theme="dark"] .piano-wrap{background:#18231f}
+html[data-theme="dark"] .lesson-note,html[data-theme="dark"] footer{background:#09100d}
+html[data-theme="dark"] .playall,html[data-theme="dark"] .listen{background:#e8eee9;color:#14231d}
+html[data-theme="dark"] .playall.playing{background:var(--orange);color:#fff}
+html[data-theme="dark"] .piano-shell{box-shadow:0 22px 30px #0009,inset 0 2px 1px #ffffff25,inset 0 -7px 10px #000a}
+html[data-theme="dark"] .ghost{border-color:#8f9b95;color:#eef4f0}
+html[data-theme="dark"] .primary.randomize{background:#52695e;color:#fff}
+html[data-theme="dark"] .chord-tile.editing{outline-color:#eef4f0}
+@media(min-width:901px){html,body{height:100%;overflow:hidden}main{height:100dvh;overflow:hidden}.progression-row{scrollbar-width:none}.progression-row::-webkit-scrollbar{display:none}}
+@media(max-width:600px){.theme-toggle b{display:none}.theme-toggle{width:34px;height:34px;justify-content:center;padding:0}.topbar-actions{gap:5px}.ghost{padding-inline:10px}}
