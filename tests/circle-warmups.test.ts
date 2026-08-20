@@ -11,11 +11,11 @@ import {
 test("fourths and fifths visit all twelve roots and return home", () => {
   assert.deepEqual(
     circleDestinations("C", "fourths"),
-    ["C", "F", "B♭", "E♭", "A♭", "C♯", "F♯", "B", "E", "A", "D", "G", "C"],
+    ["C", "F", "B♭", "E♭", "A♭", "D♭", "G♭", "B", "E", "A", "D", "G", "C"],
   );
   assert.deepEqual(
     circleDestinations("C", "fifths"),
-    ["C", "G", "D", "A", "E", "B", "F♯", "C♯", "A♭", "E♭", "B♭", "F", "C"],
+    ["C", "G", "D", "A", "E", "B", "F♯", "D♭", "A♭", "E♭", "B♭", "F", "C"],
   );
 
   const fromFlat = circleDestinations("B♭", "fourths");
@@ -32,9 +32,9 @@ test("every advertised substitution builds the expected route to C", () => {
     "ii-v": ["Dm7", "G7"],
     "iii-vi": ["Em7", "A7"],
     "vii-dim7": ["Bdim7"],
-    "tritone-dominant": ["C♯7"],
+    "tritone-dominant": ["D♭7"],
     "backdoor-ii-v": ["Fm7", "B♭7"],
-    "tritone-ii-v": ["A♭m7", "C♯7"],
+    "tritone-ii-v": ["A♭m7", "D♭7"],
     "iv-iv-minor": ["Fmaj7", "Fm7"],
     "gospel-chromatic-pull": ["A7", "A♭7", "G7"],
   };
@@ -43,6 +43,11 @@ test("every advertised substitution builds the expected route to C", () => {
   for (const option of CIRCLE_APPROACH_OPTIONS) {
     assert.deepEqual(circleApproachChords("C", option.id), expected[option.id], option.label);
   }
+});
+
+test("circle approaches inherit each destination's written spelling",()=>{
+  assert.deepEqual(circleApproachChords("D♭","ii-v"),["E♭m7","A♭7"]);
+  assert.deepEqual(circleApproachChords("C♯","ii-v"),["D♯m7","G♯7"]);
 });
 
 test("ii-V is inserted before each destination with explicit teaching metadata", () => {
