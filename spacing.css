@@ -196,7 +196,7 @@ html[data-theme="dark"] .fullscreen-explanation{background:#0f1a15;color:#eaf2ed
 
 /* Performance-first interface pass. The active harmony remains unmistakable,
    while supporting choices step back without changing the progression's order. */
-.mobile-mode-select{display:none}
+.generator-card .mobile-mode-select{display:none}
 .controls-toggle{display:inline-flex;align-items:center;justify-content:space-between;gap:7px;margin-top:10px;border:1px solid #53635b;border-radius:99px;background:transparent;color:#edf2ee;padding:6px 10px;font:600 10px Manrope,sans-serif}
 .controls-toggle:hover{border-color:var(--orange);color:#fff}
 .generator-card:not(.controls-open) .generator-fields{display:none}
@@ -229,7 +229,7 @@ html[data-theme="dark"] .fullscreen-explanation{background:#0f1a15;color:#eaf2ed
 }
 @media(max-width:800px){
   .mode-options{display:none!important}
-  .mobile-mode-select{display:block;width:100%;border:1px solid #53635b;border-radius:3px;background:#14231d;color:#fff;padding:9px 10px;font:600 12px Manrope,sans-serif}
+  .generator-card .mobile-mode-select{display:block;width:100%;border:1px solid #53635b;border-radius:3px;background:#14231d;color:#fff;padding:9px 10px;font:600 12px Manrope,sans-serif}
   .generator-card .mode-picker{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center}
   .generator-card .mode-picker>span{white-space:nowrap}
   .player-bar{gap:7px}.player-identity{flex:1 1 100%;width:100%}.now-playing{order:2;flex:1 1 100%;overflow:hidden;text-overflow:ellipsis}.sound-picker{order:3}.player-tempo{order:4}.bass-toggle{order:5}.player-bar .listen{order:6;margin-left:auto}.player-tempo input{width:58px}.player-identity small{max-width:100%}
