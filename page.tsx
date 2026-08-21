@@ -92,7 +92,12 @@ function rightHandFinger(index: number, voiceCount: number) {
   return fingerings[voiceCount]?.[index] ?? index + 1;
 }
 
-type SoundPatch = "grand" | "ep";
+/**
+ * Cadence's own soft EP is deliberately synth based: it is instant, works
+ * offline, and retains the sound long-time users expect. The remaining
+ * choices warm up a sampled instrument after that first reliable playback.
+ */
+type SoundPatch = "cadence" | "grand" | "rhodes" | "organ";
 type SampledInstrument = {
   ready: Promise<unknown>;
   start: (event: { note: number; time?: number; duration?: number; velocity?: number }) => unknown;
@@ -146,45 +151,56 @@ function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, b
 }
 
 function warmSampledInstrument(ctx: AudioContext, patch: SoundPatch) {
+  if (patch === "cadence") return;
   if (sampledContext !== ctx) {
     sampledContext = ctx;
-    delete sampledInstruments.grand; delete sampledInstruments.ep;
-    delete sampledLoads.grand; delete sampledLoads.ep;
+    delete sampledInstruments.grand; delete sampledInstruments.rhodes; delete sampledInstruments.organ;
+    delete sampledLoads.grand; delete sampledLoads.rhodes; delete sampledLoads.organ;
   }
   if (sampledInstruments[patch] || sampledLoads[patch]) return;
-  sampledLoads[patch] = import("smplr").then(({ ElectricPiano, SplendidGrandPiano }) => {
+  sampledLoads[patch] = import("smplr").then(({ Soundfont, SplendidGrandPiano }) => {
     const instrument = patch === "grand"
       ? SplendidGrandPiano(ctx, { volume: 86, decayTime: 1.5 })
-      : ElectricPiano(ctx, { instrument: "WurlitzerEP200", volume: 88 });
-    if (patch === "ep") instrument.tremolo.level(8);
+      : patch === "rhodes"
+        ? Soundfont(ctx, { kit: "FluidR3_GM", instrument: "electric_piano_1", volume: 87 })
+        : Soundfont(ctx, { kit: "FluidR3_GM", instrument: "drawbar_organ", volume: 82, loadLoopData: true });
     return instrument.ready.then(() => { sampledInstruments[patch] = instrument; });
   }).catch(() => undefined).finally(() => { delete sampledLoads[patch]; });
 }
 
-function scheduleSampledNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch) {
+function scheduleSampledNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch, phraseIndex = 0) {
+  if (patch === "cadence") return false;
   const instrument = sampledInstruments[patch];
   if (!instrument) return false;
   const releaseAt = Math.max(.2, holdSeconds);
-  midis.forEach((midi, index) => instrument.start({
+  const playerAccent = (phraseIndex % 4) * 2;
+  midis.forEach((midi, index) => {
+    const isBass = midi === bassMidi;
+    const velocity = patch === "organ"
+      ? (isBass ? 84 : 96)
+      : Math.max(68, Math.min(112, (isBass ? 78 : 94 + playerAccent) - Math.min(index, 4) * 2));
+    instrument.start({
     note: midi,
-    time: ctx.currentTime + index * .025,
+    // A tiny roll lets a held chord breathe without becoming an arpeggio.
+    time: ctx.currentTime + index * (patch === "organ" ? .008 : .018),
     duration: releaseAt,
-    velocity: midi === bassMidi ? 92 : 104,
-  }));
+    velocity,
+    });
+  });
   return true;
 }
 
-function schedulePlayableNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch) {
-  if (!scheduleSampledNotes(ctx, midis, holdSeconds, bassMidi, patch)) {
+function schedulePlayableNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch, phraseIndex = 0) {
+  if (!scheduleSampledNotes(ctx, midis, holdSeconds, bassMidi, patch, phraseIndex)) {
     scheduleNotes(ctx, midis, holdSeconds, bassMidi);
     warmSampledInstrument(ctx, patch);
   }
 }
 
-async function playNotes(midis: number[], holdSeconds = 1.15, bassMidi?: number, patch: SoundPatch = "grand") {
+async function playNotes(midis: number[], holdSeconds = 1.15, bassMidi?: number, patch: SoundPatch = "cadence", phraseIndex = 0) {
   const ctx = await ensureAudioContext();
   if (!ctx) return false;
-  schedulePlayableNotes(ctx, midis, holdSeconds, bassMidi, patch);
+  schedulePlayableNotes(ctx, midis, holdSeconds, bassMidi, patch, phraseIndex);
   return true;
 }
 
@@ -250,7 +266,7 @@ export default function Home() {
   const [voicing, setVoicing] = useState(0);
   const [fingers, setFingers] = useState(true);
   const [includeBass, setIncludeBass] = useState(true);
-  const [soundPatch, setSoundPatch] = useState<SoundPatch>("grand");
+  const [soundPatch, setSoundPatch] = useState<SoundPatch>("cadence");
   const [tempo, setTempo] = useState(82);
   const [activeMidi, setActiveMidi] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -541,7 +557,7 @@ export default function Home() {
       setSelected(i);
       const notes = audibleNotes(event, includeBass);
       if (ctx.state === "running") {
-        schedulePlayableNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch);
+        schedulePlayableNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch, i);
       } else {
         void playNotes(notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch);
       }
@@ -659,7 +675,7 @@ export default function Home() {
           <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>Three comfortable right-hand positions plus a separate bass</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
           <div className="voicing-tabs">{["Lower position", "Voice-led middle", "Upper position"].map((v,i)=><button className={voicing===i?"active":""} key={v} onClick={()=>setVoicing(i)}>{v}</button>)}</div>
           <div className="piano-wrap">
-            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>setSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="grand">Grand piano</option><option value="ep">Wurlitzer EP</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
+            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>setSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="cadence">Cadence soft EP</option><option value="grand">Grand piano</option><option value="rhodes">Rhodes</option><option value="organ">B3 organ</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
             <div className="piano-shell"><div className="piano">
               {whites.map((midi) => {const cutLeft=blacks.includes(midi-1);const cutRight=blacks.includes(midi+1);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} className={`white ${cutLeft?"cut-left":""} ${cutRight?"cut-right":""} ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} key={midi} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi],1.15,undefined,soundPatch)}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>
                 <small>{keyboardNotes.includes(midi)?chordNoteName(midi,chord):noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}
