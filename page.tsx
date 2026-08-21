@@ -143,29 +143,23 @@ async function ensureAudioContext() {
 
 function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, bassMidi?: number): NoteStop[] {
   const releaseAt = Math.max(.2, holdSeconds);
-  return midis.map((midi, i) => {
+  midis.forEach((midi, i) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const isBass = i === 0 && midi === bassMidi;
     const noteStart = ctx.currentTime + i * 0.035;
     osc.type = isBass ? "sine" : "triangle";
     osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
-    // Cadence's original quick soft-EP attack: present without a noticeable fade.
-    gain.gain.setValueAtTime(.0001, noteStart);
+    // Original Cadence Soft EP envelope: let each note end naturally.
+    gain.gain.setValueAtTime(0, noteStart);
     gain.gain.linearRampToValueAtTime(isBass ? .15 : .09, noteStart + .02);
     gain.gain.exponentialRampToValueAtTime(.001, noteStart + releaseAt);
     osc.connect(gain).connect(ctx.destination);
     osc.start(noteStart);
     osc.stop(noteStart + releaseAt + .05);
-    return (stopTime = ctx.currentTime) => {
-      const releaseStart = Math.max(stopTime, noteStart);
-      try {
-        gain.gain.cancelScheduledValues(releaseStart);
-        gain.gain.setTargetAtTime(.0001, releaseStart, .028);
-        osc.stop(releaseStart + .11);
-      } catch { /* The oscillator may already have ended. */ }
-    };
   });
+  // Do not force-stop the original Soft EP; that was the source of its click.
+  return [];
 }
 
 function warmSampledInstrument(ctx: AudioContext, patch: SoundPatch) {
