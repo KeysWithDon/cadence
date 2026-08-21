@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+async function render(){
+  const workerUrl=new URL("../dist/server/index.js",import.meta.url);workerUrl.searchParams.set("test",`${process.pid}-${Date.now()}`);
+  const {default:worker}=await import(workerUrl.href);
+  return worker.fetch(new Request("http://localhost/",{headers:{accept:"text/html"}}),{ASSETS:{fetch:async()=>new Response("Not found",{status:404})}},{waitUntil(){},passThroughOnException(){}});
+}
+
+test("server-renders the complete Cadence teaching workspace",async()=>{
+  const response=await render();assert.equal(response.status,200);assert.match(response.headers.get("content-type")??"",/^text\/html\b/i);
+  const html=await response.text();
+  assert.match(html,/<title>Cadence — Chord Progression Maker &amp; Voicing Teacher<\/title>/);
+  assert.match(html,/Common progressions/);assert.match(html,/Workshop/);assert.match(html,/Circle warm-up/);assert.match(html,/Jazz standards/);
+  assert.doesNotMatch(html,/Target practice|Arpeggiate|Block chords/);
+  assert.match(html,/aria-label="Switch to dark mode"/);assert.match(html,/aria-label="Enter full screen"/);
+  assert.doesNotMatch(html,/>Studio<|>Learn<|>Library</);
+  assert.match(html,/Play whole progression/);assert.match(html,/Hear.*voicing.*bass/);
+  assert.doesNotMatch(html,/codex-preview|Building your site|react-loading-skeleton/);
+});

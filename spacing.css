@@ -103,7 +103,6 @@
 .generator-card .mode-options button:focus-visible{outline:2px solid white;outline-offset:2px}
 .generator-card>label{min-width:0}
 .generator-card.mode-common{grid-template-columns:minmax(72px,.5fr) minmax(210px,1.45fr) minmax(150px,.9fr) minmax(135px,.8fr) minmax(120px,.85fr) minmax(120px,.85fr)}
-.generator-card.mode-target:has(.target-quality){grid-template-columns:minmax(68px,.45fr) minmax(68px,.45fr) minmax(98px,.65fr) minmax(145px,.9fr) minmax(125px,.75fr) minmax(115px,.8fr) minmax(115px,.8fr)}
 .generator-card.mode-resolve:has(.source-quality){grid-template-columns:minmax(64px,.4fr) minmax(108px,.65fr) minmax(64px,.4fr) minmax(108px,.65fr) minmax(145px,.9fr) minmax(120px,.7fr) minmax(112px,.78fr) minmax(112px,.78fr)}
 .generator-card.mode-circle{grid-template-columns:minmax(68px,.42fr) minmax(145px,.82fr) minmax(215px,1.28fr) minmax(145px,.86fr) minmax(130px,.74fr) minmax(122px,.78fr) minmax(122px,.78fr)}
 .generator-card.mode-workshop{grid-template-columns:minmax(70px,.42fr) minmax(230px,1.45fr) minmax(145px,.86fr) minmax(118px,.68fr) minmax(135px,.82fr) minmax(126px,.8fr) minmax(126px,.8fr)}
@@ -112,13 +111,13 @@
 .chart-extensions{margin-top:8px;color:#fff;font:600 12px Manrope,sans-serif;white-space:nowrap}
 
 @media (min-width:801px) and (max-width:1100px){
-  .generator-card.mode-common,.generator-card.mode-target:has(.target-quality),.generator-card.mode-resolve:has(.source-quality),.generator-card.mode-circle,.generator-card.mode-workshop,.generator-card.mode-standards{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .generator-card.mode-common,.generator-card.mode-resolve:has(.source-quality),.generator-card.mode-circle,.generator-card.mode-workshop,.generator-card.mode-standards{grid-template-columns:repeat(4,minmax(0,1fr))}
   .generator-card.mode-circle .circle-approach{grid-column:span 2}
   .generator-card.mode-standards>label:first-of-type{grid-column:span 2}
 }
 
 @media(max-width:800px){
-  .generator-card.mode-common,.generator-card.mode-target:has(.target-quality),.generator-card.mode-resolve:has(.source-quality),.generator-card.mode-circle,.generator-card.mode-workshop,.generator-card.mode-standards{grid-template-columns:1fr 1fr}
+  .generator-card.mode-common,.generator-card.mode-resolve:has(.source-quality),.generator-card.mode-circle,.generator-card.mode-workshop,.generator-card.mode-standards{grid-template-columns:1fr 1fr}
   .generator-card .mode-picker{align-items:flex-start;flex-direction:column;gap:7px;padding-bottom:12px}
   .generator-card .mode-options{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:6px}
   .generator-card .mode-options button{width:100%;min-width:0;white-space:normal}
@@ -161,23 +160,12 @@ html[data-theme="dark"] .chord-tile.editing{outline-color:#eef4f0}
 @media(max-width:600px){.theme-toggle b{display:none}.theme-toggle{width:34px;height:34px;justify-content:center;padding:0}.topbar-actions{gap:5px}.ghost{padding-inline:10px}}
 
 .remove-trigger{height:24px;border:1px solid #d9d5ca;border-top:0;background:#fffdf8;color:#8a4d3b;font:600 8px "DM Mono";letter-spacing:.06em;text-transform:uppercase}.remove-trigger:hover:not(:disabled){background:#f7e1d8;color:#702d1a}.remove-trigger:disabled{color:#aeb5b1;background:#f0eee7;cursor:not-allowed}
+.workshop-suggestion small{display:block;margin-top:7px;color:#aeb8b3;font:400 10px/1.35 Manrope,sans-serif;letter-spacing:0;text-transform:none}.add-tile:disabled,.primary:disabled{cursor:not-allowed;opacity:.48;transform:none!important}
+.fullscreen-explanation{margin:14px auto 0;max-width:880px;padding:12px 16px;border-left:3px solid var(--orange);background:#e9eee8;color:#24332c}.fullscreen-explanation b{font:600 11px "DM Mono";letter-spacing:.08em;text-transform:uppercase}.fullscreen-explanation p{margin:5px 0 0;font-size:12px;line-height:1.45;color:#536159}
+html[data-theme="dark"] .fullscreen-explanation{background:#0f1a15;color:#eaf2ed}html[data-theme="dark"] .fullscreen-explanation p{color:#b8c7bf}
 
-
-/* Cadence workshop: wide, fluid desktop surface + optional harmony advisor. */
-.workspace{width:100%;max-width:1720px;margin-inline:auto;padding-inline:clamp(16px,3vw,64px)}
-.workspace>.teacher,.teacher>.piano-wrap,.piano-shell{width:100%;min-width:0}
-.teacher>.lesson-note{display:block!important;margin-top:18px}
-.workshop-guidance{font:600 10px "DM Mono";letter-spacing:.08em;color:#536159;align-self:center;padding:8px 10px}
-.workshop-disabled{opacity:.6;cursor:default}
-.workshop-advisor{margin:8px 0 26px;padding:18px 20px;background:#f1f4ef;border-left:4px solid #ef6b3a}
-.workshop-advisor-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:14px}
-.workshop-advisor-head h3{margin:3px 0 4px;font-size:22px;color:#14231d}.workshop-advisor-head p{margin:0;color:#68726c;font-size:13px}.workshop-advisor-head button{border:1px solid #14231d;background:#fffdf8;border-radius:99px;padding:9px 14px;font-weight:700;white-space:nowrap}
-.workshop-suggestion-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
-.workshop-suggestion-card{background:#fffdf8;border:1px solid #d9d5ca;padding:13px;display:flex;flex-direction:column;min-height:160px}.workshop-suggestion-card>span{font:600 9px "DM Mono";letter-spacing:.08em;color:#ef6b3a}.workshop-suggestion-card strong{font-size:24px;margin:6px 0 2px;color:#14231d}.workshop-suggestion-card>b{font-size:11px;color:#536159}.workshop-suggestion-card p{font-size:11px;line-height:1.45;color:#68726c;flex:1;margin:8px 0 12px}.workshop-suggestion-card button{border:1px solid #14231d;background:#14231d;color:#fff;border-radius:3px;padding:8px 10px;font-size:10px;font-weight:700}
-@media(max-width:1200px){.workshop-suggestion-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:700px){.workspace{padding-inline:12px}.workshop-advisor{padding:14px}.workshop-advisor-head{flex-direction:column}.workshop-suggestion-grid{grid-template-columns:1fr 1fr}.workshop-suggestion-card{min-height:145px}}
-@media(max-width:480px){.workshop-suggestion-grid{grid-template-columns:1fr}.workshop-guidance{display:none}}
-@media(min-width:1500px){.workspace{max-width:1760px}}
-@media(min-width:901px){.hero{padding-inline:clamp(24px,4vw,72px)}.generator-card{width:100%;max-width:1720px;margin-inline:auto}.progression-row{width:100%}.piano-wrap{width:100%}.piano-shell .piano{min-width:0;width:100%}}
-:fullscreen .teacher>.lesson-note{display:block!important}
-:-webkit-full-screen .teacher>.lesson-note{display:block!important}
+/* Let the teaching surface breathe on wide monitors without making controls
+   unreadably far apart. Compact layouts retain their existing two-column flow. */
+@media(min-width:1200px){.hero{padding-left:clamp(48px,6vw,150px);padding-right:clamp(48px,6vw,150px)}.workspace{padding-left:clamp(48px,6vw,150px);padding-right:clamp(48px,6vw,150px)}.hero h1{max-width:980px}.hero>p{max-width:650px}.generator-card,.workspace>.section-head,.workspace>.progression-row,.workspace>.substitution-compact,.workspace>.teacher{width:100%;max-width:2200px;margin-left:auto;margin-right:auto}.piano-wrap{padding-left:clamp(22px,3vw,54px);padding-right:clamp(22px,3vw,54px)}}
+@media(min-width:1600px){.generator-card{gap:32px;padding:24px 32px}.mode-options{gap:8px!important}.mode-options button{padding-inline:15px!important}.piano{height:250px}}
+@media(min-width:901px){:fullscreen .workspace{padding:12px clamp(20px,3vw,56px)}:fullscreen .hero{padding-top:22px}:fullscreen .hero h1,:fullscreen .hero>p,:fullscreen .hero .eyebrow{display:none}:fullscreen .generator-card{margin-top:0}:fullscreen .teacher>.teacher-top,:fullscreen .teacher>.voicing-tabs{display:none}:fullscreen .teacher>.piano-wrap{order:1}:fullscreen .fullscreen-explanation{display:block}}

@@ -28,8 +28,7 @@ const PROGRESSIONS = [
   { name: "Plagal soul · I–IV–I–IV", degrees: [0,3,0,3] },
 ];
 
-type GeneratorMode = "common" | "target" | "resolve" | "circle" | "workshop" | "standards";
-type PlaybackStyle = "block";
+type GeneratorMode = "common" | "resolve" | "circle" | "workshop" | "standards";
 
 function parseChord(chord: string) {
   const primary = chord.split("(")[0];
@@ -118,31 +117,28 @@ async function ensureAudioContext() {
   return ctx.state === "running" ? ctx : null;
 }
 
-function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, bassMidi?: number, playbackStyle: PlaybackStyle = "block") {
+function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, bassMidi?: number) {
   const releaseAt = Math.max(.2, holdSeconds);
-  const notes = midis;
-  const arpeggioGap = 0;
-  notes.forEach((midi, i) => {
+  midis.forEach((midi, i) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    const isBass = midi === bassMidi;
-    const noteStart = ctx.currentTime + i * arpeggioGap;
-    const noteHold = Math.max(.16, releaseAt - i * arpeggioGap);
+    const isBass = i === 0 && midi === bassMidi;
+    const noteStart = ctx.currentTime + i * 0.035;
     osc.type = isBass ? "sine" : "triangle";
     osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
     gain.gain.setValueAtTime(0, noteStart);
     gain.gain.linearRampToValueAtTime(isBass ? 0.15 : 0.09, noteStart + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, noteStart + noteHold);
+    gain.gain.exponentialRampToValueAtTime(0.001, noteStart + releaseAt);
     osc.connect(gain).connect(ctx.destination);
     osc.start(noteStart);
-    osc.stop(noteStart + noteHold + .05);
+    osc.stop(noteStart + releaseAt + .05);
   });
 }
 
-async function playNotes(midis: number[], holdSeconds = 1.15, bassMidi?: number, playbackStyle: PlaybackStyle = "block") {
+async function playNotes(midis: number[], holdSeconds = 1.15, bassMidi?: number) {
   const ctx = await ensureAudioContext();
   if (!ctx) return false;
-  scheduleNotes(ctx, midis, holdSeconds, bassMidi, playbackStyle);
+  scheduleNotes(ctx, midis, holdSeconds, bassMidi);
   return true;
 }
 
@@ -182,22 +178,31 @@ function audibleNotes(event: VoicedChord, includeBass: boolean) {
   return includeBass ? [event.bass, ...event.upperVoices] : event.upperVoices;
 }
 
-function workshopChordSuggestions(key: string, extensionsEnabled: boolean, extensionLevel: "7"|"9"|"11"|"13") {
+function workshopChordSuggestions(key: string, previousChord: string | undefined, extensionsEnabled: boolean, extensionLevel: "7"|"9"|"11"|"13") {
   const diatonic = buildDiatonicSevenths(key);
-  const shaped = (chord: string) => extensionsEnabled ? setChordComplexity(chord, musicalComplexity(chord, extensionLevel)) : setChordComplexity(chord, "triad");
-  const items = [
-    { chord: diatonic[0], category: "STAY HOME", label: "Tonic · I", reason: "stable landing; keeps the key feeling centered" },
-    { chord: diatonic[1], category: "KEEP MOVING", label: "Predominant · ii", reason: "opens the door toward dominant motion without forcing it" },
-    { chord: diatonic[2], category: "ADD COLOR", label: "Color · iii", reason: "keeps the key while changing the emotional shade" },
-    { chord: diatonic[3], category: "LIFT", label: "Lift · IV", reason: "brightens the phrase and gives the melody room to rise" },
-    { chord: diatonic[4], category: "CREATE PULL", label: "Dominant · V", reason: "creates a strong pull toward I, but you can go elsewhere" },
-    { chord: diatonic[5], category: "CHANGE THE MOOD", label: "Relative minor · vi", reason: "keeps familiar notes while turning the color inward" },
-    { chord: `${spellRomanDegree(key, 5)}7`, category: "CREATE PULL", label: "Secondary dominant", reason: "adds a temporary destination and stronger forward motion" },
-    { chord: `${spellRomanDegree(key, 4)}m7`, category: "BORROW COLOR", label: "Borrowed iv", reason: "darkens the major key without abandoning its home" },
-    { chord: `${spellRomanDegree(key, 2, -1)}maj7`, category: "SURPRISE", label: "♭II borrowed color", reason: "a cinematic chromatic shift with a smooth common-tone option" },
-    { chord: `${spellRomanDegree(key, 6, -1)}maj7`, category: "SURPRISE", label: "♭VI borrowed color", reason: "adds warmth and drama while keeping the tonic available" },
-  ];
-  return items.map(item => ({ ...item, chord: shaped(item.chord) }));
+  const shaped = (chord: string) => extensionsEnabled
+    ? setChordComplexity(chord, musicalComplexity(chord, extensionLevel))
+    : setChordComplexity(chord, "triad");
+  const priorPitch = previousChord ? parseChordRoot(previousChord).root.pitchClass : -1;
+  const priorDegree = diatonic.findIndex(chord => parseChordRoot(chord).root.pitchClass === priorPitch);
+  const routes: Record<number, Array<[number, string, string]>> = {
+    0: [[1,"ii · set up the dominant","Predominant motion gives the harmony somewhere to go."],[3,"IV · open the harmony","The subdominant creates a natural lift from home."],[4,"V · create a clear return","The dominant’s guide tones point back to I."],[5,"vi · soften the color","A relative-minor turn keeps a shared, lyrical sound."]],
+    1: [[4,"V · complete ii–V","This is the classic functional pull toward home."],[3,"IV · delay the arrival","A gentle detour keeps the tension spacious."],[5,"vi · move by shared tones","This supports a smooth, less direct line."]],
+    2: [[5,"vi · continue the lift","iii–vi keeps a close, connected inner line."],[3,"IV · broaden the color","Common tones make this a calm, musical turn."],[1,"ii · begin a cadence","This prepares a dependable ii–V route."]],
+    3: [[4,"V · build destination energy","IV–V sets up a clear resolution."],[0,"I · settle home","Plagal movement resolves without extra tension."],[1,"ii · keep moving","Use this when you want to postpone the arrival."]],
+    4: [[0,"I · resolve home","The dominant 3rd and 7th have a clear destination."],[5,"vi · deceptive color","A deceptive move preserves motion without landing yet."],[1,"ii · continue the circle","This restarts a smooth functional loop."]],
+    5: [[1,"ii · start a cadence","vi–ii is a natural way to build toward V."],[3,"IV · brighten the path","Shared tones keep this gentle and singable."],[4,"V · add direct pull","Use this when the next chord should feel inevitable."]],
+    6: [[0,"I · resolve the leading tone","The leading tone wants to move upward into home."]],
+  };
+  const fallback = [[0,"I · home","Start or reset the harmonic center."],[1,"ii · predominant","Set up a future dominant."],[3,"IV · lift","Move outward while retaining common tones."],[4,"V · resolve","Create a strong return to I."],[5,"vi · relative minor","Shift the emotion without leaving the key."]] as Array<[number,string,string]>;
+  const result = previousChord ? [{ chord: previousChord, label: "Hold · keep this color", why: "You do not have to move. Let a melody, rhythm, or bass change carry the phrase." }] : [];
+  for (const [degree, label, why] of routes[priorDegree] ?? fallback) result.push({ chord: shaped(diatonic[degree]), label, why });
+  result.push(
+    { chord: shaped(`${spellRomanDegree(key,6)}7`), label: "V/ii · secondary pull", why: "Use this only if you want the next move to be ii; its tendency tones make that destination feel intentional." },
+    { chord: shaped(`${spellRomanDegree(key,4)}m7`), label: "iv · borrowed color", why: "Borrowed minor adds warmth before a major-key destination without changing the tonic." },
+    { chord: shaped(`${spellRomanDegree(key,2,-1)}7`), label: "♭II7 · tritone color", why: "This is a bolder dominant color; let its tense notes resolve by half-step." },
+  );
+  return result.filter((suggestion,index,all)=>all.findIndex(candidate=>candidate.chord===suggestion.chord)===index);
 }
 
 export default function Home() {
@@ -211,7 +216,7 @@ export default function Home() {
   const [extensionLevel, setExtensionLevel] = useState<"7"|"9"|"11"|"13">("7");
   const [preset, setPreset] = useState(0);
   const [standardIndex, setStandardIndex] = useState(0);
-  const [workshopSuggestionIndex, setWorkshopSuggestionIndex] = useState(0);
+  const [workshopSuggestionIndex, setWorkshopSuggestionIndex] = useState(-1);
   const progressionLength = 4;
   const [progression, setProgression] = useState(["Cmaj7", "Dm7", "G7", "Cmaj7"]);
   const [durations, setDurations] = useState([1,1,1,1]);
@@ -226,7 +231,6 @@ export default function Home() {
   const [voicing, setVoicing] = useState(0);
   const [fingers, setFingers] = useState(true);
   const [includeBass, setIncludeBass] = useState(true);
-  const [playbackStyle] = useState<PlaybackStyle>("block");
   const [tempo, setTempo] = useState(82);
   const [activeMidi, setActiveMidi] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -253,11 +257,10 @@ export default function Home() {
 
   const chord = progression[selected];
   const workshopSuggestions = useMemo(
-    () => workshopChordSuggestions(key, extensionsEnabled, extensionLevel),
-    [key, extensionsEnabled, extensionLevel],
+    () => workshopChordSuggestions(key, progression[progression.length-1], extensionsEnabled, extensionLevel),
+    [key, progression, extensionsEnabled, extensionLevel],
   );
-  const activeWorkshopSuggestion = workshopSuggestions[workshopSuggestionIndex] ?? workshopSuggestions[0];
-  const visibleWorkshopSuggestions = [0,1,2,3,4].map(offset => workshopSuggestions[(workshopSuggestionIndex + offset) % workshopSuggestions.length]).filter(Boolean);
+  const activeWorkshopSuggestion = workshopSuggestionIndex >= 0 ? workshopSuggestions[workshopSuggestionIndex] : undefined;
   const standardBarBeats = standardBeatsPerBar(STANDARDS[standardIndex] as StandardSource);
   const voiceStyle: VoiceLeadingStyle = generatorMode === "standards" ? "jazz"
     : generatorMode === "circle" ? /gospel|iv-iv/.test(circleApproach) ? "gospel" : "jazz"
@@ -284,7 +287,7 @@ export default function Home() {
       durations: events.map(event=>event.beats),
     };
   };
-  const routeForMode = (chords:string[], mode=generatorMode, length=progressionLength, quality=targetQuality) => mode==="standards"?standardSequence(standardIndex).chords:mode==="resolve"?resolutionPath(sourceNote,sourceQuality,globalTarget,quality,length):mode==="target"?leadToTarget(chords,globalTarget,quality):chords;
+  const routeForMode = (chords:string[], mode=generatorMode, length=progressionLength, quality=targetQuality) => mode==="standards"?standardSequence(standardIndex).chords:mode==="resolve"?resolutionPath(sourceNote,sourceQuality,globalTarget,quality,length):chords;
 
   const applyComplexity = (chords:string[], enabled=extensionsEnabled, level=extensionLevel, mode=generatorMode) => chords.map((chordName,index)=>{
     if (mode === "standards") return chordName;
@@ -336,15 +339,6 @@ export default function Home() {
     setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
   };
 
-  function addWorkshopChord(chordName: string) {
-    if (generatorMode !== "workshop" || !chordName) return;
-    setProgression((items) => [...items, chordName]);
-    setDurations((items) => [...items, 1]);
-    setSelected(progression.length);
-    setEditTarget(null);
-    setSubstitutionHistory([]);
-  }
-
   function generate() {
     if (generatorMode === "standards") {
       const sequence = standardSequence();
@@ -356,6 +350,10 @@ export default function Home() {
       return;
     }
     if (generatorMode === "workshop") {
+      if (!activeWorkshopSuggestion) return;
+      setProgression((items) => [...items, activeWorkshopSuggestion.chord]);
+      setDurations((items) => [...items, 1]);
+      setSelected(progression.length); setWorkshopSuggestionIndex(-1); setEditTarget(null); setSubstitutionHistory([]);
       return;
     }
     const pool = MAJOR[key] || MAJOR.C;
@@ -387,9 +385,9 @@ export default function Home() {
       return;
     }
     if (generatorMode === "workshop") {
-      const home = workshopSuggestions[0]?.chord ?? `${key}maj7`;
+      const home = workshopChordSuggestions(key, undefined, extensionsEnabled, extensionLevel)[0]?.chord ?? `${key}maj7`;
       setProgression([home]); setDurations([1]); setSelected(0); setVoicing(0);
-      setEditTarget(null); setSubstitutionHistory([]); return;
+      setWorkshopSuggestionIndex(-1); setEditTarget(null); setSubstitutionHistory([]); return;
     }
     const pool = MAJOR[key] || MAJOR.C;
     const transitions: Record<number,number[]> = {0:[1,2,3,4,5],1:[4,5,2],2:[5,3,1],3:[0,1,4,5],4:[0,5],5:[1,3,4]};
@@ -465,12 +463,12 @@ export default function Home() {
       return;
     }
     if (nextMode === "workshop") {
-      const home = workshopChordSuggestions(key, extensionsEnabled, extensionLevel)[0]?.chord ?? `${key}maj7`;
-      setWorkshopSuggestionIndex(0); setProgression([home]); setDurations([1]);
+      const home = workshopChordSuggestions(key, undefined, extensionsEnabled, extensionLevel)[0]?.chord ?? `${key}maj7`;
+      setWorkshopSuggestionIndex(-1); setProgression([home]); setDurations([1]);
       setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]); return;
     }
     const standard = standardSequence();
-    const routed = nextMode==="standards"?standard.chords:nextMode==="resolve"?resolutionPath(sourceNote,sourceQuality,globalTarget,targetQuality,progressionLength):nextMode==="target"?leadToTarget(nextChords,globalTarget,targetQuality):nextChords;
+    const routed = nextMode==="standards"?standard.chords:nextMode==="resolve"?resolutionPath(sourceNote,sourceQuality,globalTarget,targetQuality,progressionLength):nextChords;
     setProgression(applyComplexity(routed,extensionsEnabled,extensionLevel,nextMode));
     setDurations(nextMode==="standards"?standard.durations:degrees.map(()=>1));
     setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
@@ -502,7 +500,7 @@ export default function Home() {
       // Workshop is intentionally non-destructive: its existing choices remain
       // written exactly as the learner added them. The new setting shapes only
       // future theory-backed suggestions.
-      setWorkshopSuggestionIndex(0);
+      setWorkshopSuggestionIndex(-1);
       return;
     }
     const pool = MAJOR[key] || MAJOR.C;
@@ -532,7 +530,7 @@ export default function Home() {
     setGeneratorMode("common"); setKey("C"); setPreset(0);
     setCircleDirection("fourths"); setCircleApproach("ii-v");
     setExtensionsEnabled(true); setExtensionLevel("7");
-    setWorkshopSuggestionIndex(0);
+    setWorkshopSuggestionIndex(-1);
     setProgression(["Cmaj7", "Dm7", "G7", "Cmaj7"]);
     setDurations([1,1,1,1]);
     setGlobalTarget("C");
@@ -560,9 +558,9 @@ export default function Home() {
       setSelected(i);
       const notes = audibleNotes(event, includeBass);
       if (ctx.state === "running") {
-        scheduleNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, playbackStyle);
+        scheduleNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined);
       } else {
-        void playNotes(notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, playbackStyle);
+        void playNotes(notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined);
       }
       const row = progressionRowRef.current;
       const card = chordCardRefs.current[i];
@@ -641,12 +639,12 @@ export default function Home() {
           {generatorMode==="common"&&<label>KEYBOARD ESSENTIAL<select value={preset} onChange={(e) => choosePreset(+e.target.value)}>{PROGRESSIONS.map((p,i) => <option value={i} key={p.name}>{p.name}</option>)}</select></label>}
           {generatorMode==="standards"&&<label>STANDARD · {STANDARDS.length} SONGS<select value={standardIndex} onChange={e=>chooseStandard(+e.target.value)}>{STANDARDS.map((standard,i)=><option value={i} key={standard.name}>{standard.name} · {standard.key}{standard.matchStatus==="reduction"?" · REDUCED STUDY":""}</option>)}</select></label>}
           {generatorMode==="resolve"&&<><label>SOURCE NOTE<select value={sourceNote} onChange={e=>chooseSource(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="source-quality">SOURCE QUALITY<select value={sourceQuality} onChange={e=>chooseSource(sourceNote,e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
-          {(generatorMode==="target"||generatorMode==="resolve")&&<><label>TARGET NOTE<select value={globalTarget} onChange={(e)=>chooseGlobalTarget(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="target-quality">TARGET QUALITY<select value={targetQuality} onChange={e=>chooseTargetQuality(e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
+          {generatorMode==="resolve"&&<><label>TARGET NOTE<select value={globalTarget} onChange={(e)=>chooseGlobalTarget(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="target-quality">TARGET QUALITY<select value={targetQuality} onChange={e=>chooseTargetQuality(e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
           {generatorMode==="circle"&&<><label className="circle-direction">DIRECTION<select value={circleDirection} onChange={e=>chooseCircleDirection(e.target.value as CircleDirection)}><option value="fourths">Circle of fourths</option><option value="fifths">Circle of fifths</option></select></label><label className="circle-approach">BETWEEN EACH CHORD<select value={circleApproach} onChange={e=>chooseCircleApproach(e.target.value as CircleApproach)}>{CIRCLE_APPROACH_OPTIONS.map(option=><option value={option.id} key={option.id}>{option.roman} · {option.label}</option>)}</select></label></>}
-          {generatorMode==="workshop"&&<div className="workshop-guidance">SUGGESTIONS ARE OPTIONAL · choose any chord, or add one of the ideas below</div>}
+          {generatorMode==="workshop"&&<label className="workshop-suggestion">OPTIONAL NEXT IDEA<select value={workshopSuggestionIndex} onChange={e=>setWorkshopSuggestionIndex(+e.target.value)} aria-label="Choose an optional next-chord idea"><option value={-1}>Explore a direction — nothing selected</option>{workshopSuggestions.map((suggestion,index)=><option value={index} key={`${suggestion.label}-${suggestion.chord}-${index}`}>{suggestion.label} · {suggestion.chord}</option>)}</select><small>{activeWorkshopSuggestion?.why??"Choose only when it fits your melody, bass line, and the destination you hear."}</small></label>}
           {generatorMode==="standards"?<div className="chart-extensions-field"><span>EXTENSIONS</span><div className="chart-extensions">AS WRITTEN</div></div>:<label>EXTENSIONS<div className="complexity-control"><input aria-label="Use tasteful chord extensions" type="checkbox" checked={extensionsEnabled} onChange={e=>chooseComplexity(e.target.checked)}/><span>{extensionsEnabled?"ON":"OFF"}</span><select aria-label="Choose the highest available chord extension" value={extensionLevel} disabled={!extensionsEnabled} onChange={e=>chooseComplexity(true,e.target.value as "7"|"9"|"11"|"13")}><option value="7">Up to 7th</option><option value="9">Up to 9th</option><option value="11">Up to 11th</option><option value="13">Up to 13th</option></select></div></label>}
           <label>TEMPO<div className="tempo"><input aria-label="Playback tempo" type="range" min="30" max="200" step="1" value={tempo} onChange={e=>setTempo(+e.target.value)}/><b>{tempo} BPM</b></div></label>
-          <button className={`primary ${generatorMode==="workshop"?"workshop-disabled":""}`} onClick={generate} disabled={generatorMode==="workshop"}><span>{generatorMode==="workshop"?"✦":"↻"}</span> {generatorMode==="common"?`Refresh in ${key}`:generatorMode==="standards"?`Restart ${STANDARDS[standardIndex].name}`:generatorMode==="circle"?`Build circle from ${key}`:generatorMode==="workshop"?"Suggestions below":generatorMode==="resolve"?"Build resolution":`Reach ${setChordComplexity(targetChord(globalTarget,targetQuality),extensionsEnabled?musicalComplexity(targetChord(globalTarget,targetQuality),extensionLevel):"triad")}`}</button>
+          <button className="primary" disabled={generatorMode==="workshop"&&!activeWorkshopSuggestion} onClick={generate}><span>{generatorMode==="workshop"?"＋":"↻"}</span> {generatorMode==="common"?`Refresh in ${key}`:generatorMode==="standards"?`Restart ${STANDARDS[standardIndex].name}`:generatorMode==="circle"?`Build circle from ${key}`:generatorMode==="workshop"?activeWorkshopSuggestion?`Add ${activeWorkshopSuggestion.chord}`:"Choose an idea":generatorMode==="resolve"?"Build resolution":"Refresh progression"}</button>
           <button className="primary randomize" onClick={generateRandomTheory}><span>✦</span> {generatorMode==="standards"?"Next standard":generatorMode==="circle"?`Switch to ${circleDirection==="fourths"?"fifths":"fourths"}`:generatorMode==="workshop"?"New workshop":generatorMode==="resolve"?"New route":"Random theory"}</button>
         </div>
       </section>
@@ -655,19 +653,12 @@ export default function Home() {
         <div className="section-head"><div><span className="step">{sectionStep}</span><h2>{sectionTitle}</h2><p>{sectionDescription}</p></div><div className="progression-controls">{substitutionHistory.length>0&&<button className="undo-sub" onClick={undoSubstitution}>↶ Switch back</button>}<button className={`playall ${isPlaying?"playing":""}`} onClick={playProgression}>{isPlaying?"■ Stop progression":"▶ Play whole progression"}</button></div></div>
         <div className="progression-row" ref={progressionRowRef}>
           {progression.map((c, i) => <div className="chord-card" key={`${c}-${i}`} ref={(node)=>{chordCardRefs.current[i]=node}}>
-            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined,playbackStyle)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):generatorMode==="circle"?`${String((circleEvents[i]?.legIndex??0)+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`:`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":generatorMode==="circle"?circleEvents[i]?.role==="approach"?"APPROACH":circleEvents[i]?.legIndex===0?"START":circleEvents[i]?.legIndex===12?"HOME":"DESTINATION":generatorMode==="workshop"?i===0?"START":"YOUR CHOICE":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
+            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):generatorMode==="circle"?`${String((circleEvents[i]?.legIndex??0)+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`:`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":generatorMode==="circle"?circleEvents[i]?.role==="approach"?"APPROACH":circleEvents[i]?.legIndex===0?"START":circleEvents[i]?.legIndex===12?"HOME":"DESTINATION":generatorMode==="workshop"?i===0?"START":"YOUR CHOICE":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
             {generatorMode!=="circle"&&<button className={`substitute-trigger ${editTarget===i?"open":""}`} onClick={()=>{setSelected(i);setSubstitutionTarget("next");setShowBlockedInfo(false);setEditTarget(editTarget===i?null:i)}}>{editTarget===i?"× Close":"↗ Substitute"}</button>}
             {generatorMode==="workshop"&&<button className="remove-trigger" disabled={progression.length<=1} onClick={()=>removeWorkshopChord(i)}>× Remove</button>}
           </div>)}
-          {generatorMode!=="standards"&&generatorMode!=="circle"&&<button className="add-tile" onClick={generatorMode==="workshop"?()=>addWorkshopChord(workshopSuggestions[workshopSuggestionIndex]?.chord):generate}>＋<span>{generatorMode==="workshop"?"Add chosen idea":"New idea"}</span></button>}
+          {generatorMode!=="standards"&&generatorMode!=="circle"&&<button className="add-tile" disabled={generatorMode==="workshop"&&!activeWorkshopSuggestion} onClick={generate}>＋<span>{generatorMode==="workshop"?"Add selected idea":"New idea"}</span></button>}
         </div>
-
-        {generatorMode==="workshop"&&<div className="workshop-advisor">
-          <div className="workshop-advisor-head"><div><span className="step">02 · HARMONY ADVISOR</span><h3>Ideas, not instructions</h3><p>Every suggestion is optional. Add one, ignore it, or choose your own chord.</p></div><button type="button" onClick={()=>setWorkshopSuggestionIndex(i=>(i+5)%workshopSuggestions.length)}>✦ More ideas</button></div>
-          <div className="workshop-suggestion-grid">
-            {visibleWorkshopSuggestions.map((suggestion,index)=><article className="workshop-suggestion-card" key={`${suggestion.category}-${suggestion.chord}-${index}`}><span>{suggestion.category}</span><strong>{suggestion.chord}</strong><b>{suggestion.label}</b><p>{suggestion.reason}</p><button type="button" onClick={()=>addWorkshopChord(suggestion.chord)}>＋ Add this chord</button></article>)}
-          </div>
-        </div>}
 
         {editTarget!==null&&<div className="substitution-compact">
           <label className="target-picker"><span>Target note</span><select value={substitutionTarget} onChange={e=>setSubstitutionTarget(e.target.value)} aria-label="Choose substitution target note"><option value="next">Next chord · {nextDestination}</option>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label>
@@ -693,7 +684,8 @@ export default function Home() {
               </div>})}
               {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}</div>})}
             </div></div>
-            <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined,playbackStyle)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
+            <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
+            {isFullscreen&&<div className="fullscreen-explanation"><b>Why this movement works</b><p>{voicedChord?.diagnostics.summary} The bass and upper voices were re-evaluated together so common tones can stay, guide tones can resolve, and each hand stays in a comfortable register.</p></div>}
           </div>
           <div className="lesson-note"><span>✦</span><div><b>Why this works</b><p>{voicedChord?.diagnostics.summary} {voicing===0?"This lower right-hand position stays clear of the separate bass.":voicing===1?"This middle position balances a comfortable register with the smoothest available voice leading.":"This upper position moves the same required chord tones higher without increasing the hand stretch."} The right hand spans {voicedChord?.diagnostics.handSpan ?? 0} semitones.</p></div></div>
         </div>
