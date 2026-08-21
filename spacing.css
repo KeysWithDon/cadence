@@ -105,25 +105,30 @@
 .generator-card.mode-common{grid-template-columns:minmax(72px,.5fr) minmax(210px,1.45fr) minmax(150px,.9fr) minmax(135px,.8fr) minmax(120px,.85fr) minmax(120px,.85fr)}
 .generator-card.mode-resolve:has(.source-quality){grid-template-columns:minmax(64px,.4fr) minmax(108px,.65fr) minmax(64px,.4fr) minmax(108px,.65fr) minmax(145px,.9fr) minmax(120px,.7fr) minmax(112px,.78fr) minmax(112px,.78fr)}
 .generator-card.mode-circle{grid-template-columns:minmax(68px,.42fr) minmax(145px,.82fr) minmax(215px,1.28fr) minmax(145px,.86fr) minmax(130px,.74fr) minmax(122px,.78fr) minmax(122px,.78fr)}
-.generator-card.mode-standards{grid-template-columns:minmax(290px,1.8fr) minmax(90px,.55fr) minmax(150px,.8fr) minmax(145px,.9fr) minmax(130px,.85fr)}
+.generator-card.mode-standards,.generator-card.mode-gospel{grid-template-columns:minmax(290px,1.8fr) minmax(90px,.55fr) minmax(150px,.8fr) minmax(145px,.9fr) minmax(130px,.85fr)}
 .standards-spelling{min-width:0;font:500 9px "DM Mono";letter-spacing:.12em;color:#aeb8b3}.standards-spelling>div{margin-top:8px;color:#fff;font:600 12px Manrope,sans-serif;white-space:nowrap}
 
 @media (min-width:801px) and (max-width:1100px){
-  .generator-card.mode-common,.generator-card.mode-resolve:has(.source-quality),.generator-card.mode-circle,.generator-card.mode-standards{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .generator-card.mode-common,.generator-card.mode-resolve:has(.source-quality),.generator-card.mode-circle,.generator-card.mode-standards,.generator-card.mode-gospel{grid-template-columns:repeat(4,minmax(0,1fr))}
   .generator-card.mode-circle .circle-approach{grid-column:span 2}
-  .generator-card.mode-standards>label:first-of-type{grid-column:span 2}
+  .generator-card.mode-standards>label:first-of-type,.generator-card.mode-gospel>label:first-of-type{grid-column:span 2}
 }
 
 @media(max-width:800px){
-  .generator-card.mode-common,.generator-card.mode-resolve:has(.source-quality),.generator-card.mode-circle,.generator-card.mode-standards{grid-template-columns:1fr 1fr}
+  .generator-card.mode-common,.generator-card.mode-resolve:has(.source-quality),.generator-card.mode-circle,.generator-card.mode-standards,.generator-card.mode-gospel{grid-template-columns:1fr 1fr}
   .generator-card .mode-picker{align-items:flex-start;flex-direction:column;gap:7px;padding-bottom:12px}
   .generator-card .mode-options{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:6px}
   .generator-card .mode-options button{width:100%;min-width:0;white-space:normal}
   .generator-card.mode-circle .circle-approach{grid-column:1/-1}
-  .generator-card.mode-standards>label:first-of-type{grid-column:1/-1}
+  .generator-card.mode-standards>label:first-of-type,.generator-card.mode-gospel>label:first-of-type{grid-column:1/-1}
 }
 
 .tempo b{white-space:nowrap}
+
+/* Gospel Standards intentionally shares the Jazz Standards teaching layout. */
+.generator-card.mode-gospel .generator-fields{grid-template-columns:minmax(290px,1.8fr) minmax(90px,.55fr) minmax(150px,.8fr) minmax(145px,.9fr) minmax(130px,.85fr)}
+@media (min-width:801px) and (max-width:1100px){.generator-card.mode-gospel .generator-fields{grid-template-columns:repeat(4,minmax(0,1fr))}.generator-card.mode-gospel .generator-fields>label:first-child{grid-column:span 2}}
+@media(max-width:800px){.generator-card.mode-gospel .generator-fields{grid-template-columns:1fr 1fr}.generator-card.mode-gospel .generator-fields>label:first-child{grid-column:1/-1}}
 
 /* Persistent theme and focused, no-scroll desktop workspace. */
 .topbar-actions{display:flex;align-items:center;gap:8px}.theme-toggle{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--paper);color:var(--ink);padding:7px 11px;border-radius:99px;font:600 10px Manrope,sans-serif}.theme-toggle span{font-size:15px;line-height:1}.theme-toggle b{font:inherit}.theme-toggle:hover{border-color:var(--orange)}.theme-toggle:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
