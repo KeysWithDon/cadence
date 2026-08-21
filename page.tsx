@@ -92,7 +92,17 @@ function rightHandFinger(index: number, voiceCount: number) {
   return fingerings[voiceCount]?.[index] ?? index + 1;
 }
 
+type SoundPatch = "grand" | "ep";
+type SampledInstrument = {
+  ready: Promise<unknown>;
+  start: (event: { note: number; time?: number; duration?: number; velocity?: number }) => unknown;
+  tremolo?: { level: (value: number) => void };
+};
+
 let sharedAudioContext: AudioContext | null = null;
+let sampledContext: AudioContext | null = null;
+const sampledInstruments: Partial<Record<SoundPatch, SampledInstrument>> = {};
+const sampledLoads: Partial<Record<SoundPatch, Promise<void>>> = {};
 
 async function ensureAudioContext() {
   const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -135,10 +145,46 @@ function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, b
   });
 }
 
-async function playNotes(midis: number[], holdSeconds = 1.15, bassMidi?: number) {
+function warmSampledInstrument(ctx: AudioContext, patch: SoundPatch) {
+  if (sampledContext !== ctx) {
+    sampledContext = ctx;
+    delete sampledInstruments.grand; delete sampledInstruments.ep;
+    delete sampledLoads.grand; delete sampledLoads.ep;
+  }
+  if (sampledInstruments[patch] || sampledLoads[patch]) return;
+  sampledLoads[patch] = import("smplr").then(({ ElectricPiano, SplendidGrandPiano }) => {
+    const instrument = patch === "grand"
+      ? SplendidGrandPiano(ctx, { volume: 86, decayTime: 1.5 })
+      : ElectricPiano(ctx, { instrument: "WurlitzerEP200", volume: 88 });
+    if (patch === "ep") instrument.tremolo.level(8);
+    return instrument.ready.then(() => { sampledInstruments[patch] = instrument; });
+  }).catch(() => undefined).finally(() => { delete sampledLoads[patch]; });
+}
+
+function scheduleSampledNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch) {
+  const instrument = sampledInstruments[patch];
+  if (!instrument) return false;
+  const releaseAt = Math.max(.2, holdSeconds);
+  midis.forEach((midi, index) => instrument.start({
+    note: midi,
+    time: ctx.currentTime + index * .025,
+    duration: releaseAt,
+    velocity: midi === bassMidi ? 92 : 104,
+  }));
+  return true;
+}
+
+function schedulePlayableNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch) {
+  if (!scheduleSampledNotes(ctx, midis, holdSeconds, bassMidi, patch)) {
+    scheduleNotes(ctx, midis, holdSeconds, bassMidi);
+    warmSampledInstrument(ctx, patch);
+  }
+}
+
+async function playNotes(midis: number[], holdSeconds = 1.15, bassMidi?: number, patch: SoundPatch = "grand") {
   const ctx = await ensureAudioContext();
   if (!ctx) return false;
-  scheduleNotes(ctx, midis, holdSeconds, bassMidi);
+  schedulePlayableNotes(ctx, midis, holdSeconds, bassMidi, patch);
   return true;
 }
 
@@ -204,6 +250,7 @@ export default function Home() {
   const [voicing, setVoicing] = useState(0);
   const [fingers, setFingers] = useState(true);
   const [includeBass, setIncludeBass] = useState(true);
+  const [soundPatch, setSoundPatch] = useState<SoundPatch>("grand");
   const [tempo, setTempo] = useState(82);
   const [activeMidi, setActiveMidi] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -494,9 +541,9 @@ export default function Home() {
       setSelected(i);
       const notes = audibleNotes(event, includeBass);
       if (ctx.state === "running") {
-        scheduleNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined);
+        schedulePlayableNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch);
       } else {
-        void playNotes(notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined);
+        void playNotes(notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch);
       }
       const row = progressionRowRef.current;
       const card = chordCardRefs.current[i];
@@ -587,9 +634,9 @@ export default function Home() {
 
       <section className="workspace" id="learn">
         <div className="section-head"><div><span className="step">{sectionStep}</span><h2>{sectionTitle}</h2><p>{sectionDescription}</p></div><div className="progression-controls">{substitutionHistory.length>0&&<button className="undo-sub" onClick={undoSubstitution}>↶ Switch back</button>}<button className={`playall ${isPlaying?"playing":""}`} onClick={playProgression}>{isPlaying?"■ Stop progression":"▶ Play whole progression"}</button></div></div>
-        <div className="progression-row" ref={progressionRowRef}>
+        <div className={`progression-row mode-${generatorMode}`} ref={progressionRowRef}>
           {progression.map((c, i) => <div className="chord-card" key={`${c}-${i}`} ref={(node)=>{chordCardRefs.current[i]=node}}>
-            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):generatorMode==="circle"?`${String((circleEvents[i]?.legIndex??0)+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`:`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":generatorMode==="circle"?circleEvents[i]?.role==="approach"?"APPROACH":circleEvents[i]?.legIndex===0?"START":circleEvents[i]?.legIndex===12?"HOME":"DESTINATION":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
+            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined,soundPatch)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):generatorMode==="circle"?`${String((circleEvents[i]?.legIndex??0)+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`:`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":generatorMode==="circle"?circleEvents[i]?.role==="approach"?"APPROACH":circleEvents[i]?.legIndex===0?"START":circleEvents[i]?.legIndex===12?"HOME":"DESTINATION":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
             {generatorMode!=="circle"&&<button className={`substitute-trigger ${editTarget===i?"open":""}`} onClick={()=>{setSelected(i);setSubstitutionTarget("next");setShowBlockedInfo(false);setEditTarget(editTarget===i?null:i)}}>{editTarget===i?"× Close":"↗ Substitute"}</button>}
           </div>)}
           {generatorMode!=="standards"&&generatorMode!=="circle"&&<button className="add-tile" onClick={generate}>＋<span>New idea</span></button>}
@@ -612,17 +659,15 @@ export default function Home() {
           <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>Three comfortable right-hand positions plus a separate bass</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
           <div className="voicing-tabs">{["Lower position", "Voice-led middle", "Upper position"].map((v,i)=><button className={voicing===i?"active":""} key={v} onClick={()=>setVoicing(i)}>{v}</button>)}</div>
           <div className="piano-wrap">
-            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
+            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>setSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="grand">Grand piano</option><option value="ep">Wurlitzer EP</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
             <div className="piano-shell"><div className="piano">
-              {whites.map((midi) => {const cutLeft=blacks.includes(midi-1);const cutRight=blacks.includes(midi+1);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} className={`white ${cutLeft?"cut-left":""} ${cutRight?"cut-right":""} ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} key={midi} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>
+              {whites.map((midi) => {const cutLeft=blacks.includes(midi-1);const cutRight=blacks.includes(midi+1);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} className={`white ${cutLeft?"cut-left":""} ${cutRight?"cut-right":""} ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} key={midi} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi],1.15,undefined,soundPatch)}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>
                 <small>{keyboardNotes.includes(midi)?chordNoteName(midi,chord):noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}
               </div>})}
-              {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}</div>})}
+              {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi],1.15,undefined,soundPatch)}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}</div>})}
             </div></div>
-            <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
-            {isFullscreen&&<div className="fullscreen-explanation"><b>Why this movement works</b><p>{voicedChord?.diagnostics.summary} The bass and upper voices were re-evaluated together so common tones can stay, guide tones can resolve, and each hand stays in a comfortable register.</p></div>}
+            <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined,soundPatch)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
           </div>
-          <div className="lesson-note"><span>✦</span><div><b>Why this works</b><p>{voicedChord?.diagnostics.summary} {voicing===0?"This lower right-hand position stays clear of the separate bass.":voicing===1?"This middle position balances a comfortable register with the smoothest available voice leading.":"This upper position moves the same required chord tones higher without increasing the hand stretch."} The right hand spans {voicedChord?.diagnostics.handSpan ?? 0} semitones.</p></div></div>
         </div>
       </section>
       <footer><span>Cadence</span><p>Make harmony feel like home.</p><small>Built for curious ears.</small></footer>

@@ -14,6 +14,8 @@ test("server-renders the complete Cadence teaching workspace",async()=>{
   assert.match(html,/Common progressions/);assert.match(html,/Resolution lab/);assert.match(html,/Circle warm-up/);assert.match(html,/Jazz standards/);
   assert.doesNotMatch(html,/Target practice|Workshop|AI chart reader|Arpeggiate|Block chords/);
   assert.match(html,/Adjust controls/);
+  assert.match(html,/Grand piano/);assert.match(html,/Wurlitzer EP/);
+  assert.doesNotMatch(html,/Why this works|Why this movement works/);
   assert.match(html,/aria-label="Switch to dark mode"/);assert.match(html,/aria-label="Enter full screen"/);
   assert.doesNotMatch(html,/>Studio<|>Learn<|>Library</);
   assert.match(html,/Play whole progression/);assert.match(html,/Hear.*voicing.*bass/);
