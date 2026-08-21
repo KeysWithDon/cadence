@@ -94,10 +94,10 @@ function rightHandFinger(index: number, voiceCount: number) {
 
 /**
  * Cadence's own soft EP is deliberately synth based: it is instant, works
- * offline, and retains the sound long-time users expect. The remaining
- * choices warm up a sampled instrument after that first reliable playback.
+ * offline, and retains the sound long-time users expect. Grand Piano is the
+ * one optional sampled instrument.
  */
-type SoundPatch = "cadence" | "grand" | "rhodes";
+type SoundPatch = "cadence" | "grand";
 type NoteStop = (time?: number) => void;
 type SampledInstrument = {
   ready: Promise<unknown>;
@@ -147,12 +147,14 @@ function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, b
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const isBass = i === 0 && midi === bassMidi;
-    const noteStart = ctx.currentTime + i * 0.035;
+    const noteStart = ctx.currentTime + i * 0.028;
+    const peak = isBass ? 0.13 : 0.075;
     osc.type = isBass ? "sine" : "triangle";
     osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
-    gain.gain.setValueAtTime(0, noteStart);
-    gain.gain.linearRampToValueAtTime(isBass ? 0.15 : 0.09, noteStart + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, noteStart + releaseAt);
+    // A gentle attack prevents the oscillator phase from creating a hard click.
+    gain.gain.setValueAtTime(.0001, noteStart);
+    gain.gain.linearRampToValueAtTime(peak, noteStart + .055);
+    gain.gain.setTargetAtTime(.0001, Math.max(noteStart + .055, noteStart + releaseAt - .12), .045);
     osc.connect(gain).connect(ctx.destination);
     osc.start(noteStart);
     osc.stop(noteStart + releaseAt + .05);
@@ -160,8 +162,8 @@ function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, b
       const releaseStart = Math.max(stopTime, noteStart);
       try {
         gain.gain.cancelScheduledValues(releaseStart);
-        gain.gain.setTargetAtTime(.0001, releaseStart, .012);
-        osc.stop(releaseStart + .045);
+        gain.gain.setTargetAtTime(.0001, releaseStart, .028);
+        osc.stop(releaseStart + .11);
       } catch { /* The oscillator may already have ended. */ }
     };
   });
@@ -171,14 +173,12 @@ function warmSampledInstrument(ctx: AudioContext, patch: SoundPatch) {
   if (patch === "cadence") return;
   if (sampledContext !== ctx) {
     sampledContext = ctx;
-    delete sampledInstruments.grand; delete sampledInstruments.rhodes;
-    delete sampledLoads.grand; delete sampledLoads.rhodes;
+    delete sampledInstruments.grand;
+    delete sampledLoads.grand;
   }
   if (sampledInstruments[patch] || sampledLoads[patch]) return;
-  sampledLoads[patch] = import("smplr").then(({ Soundfont, SplendidGrandPiano }) => {
-    const instrument = patch === "grand"
-      ? SplendidGrandPiano(ctx, { volume: 86, decayTime: 1.5 })
-      : Soundfont(ctx, { kit: "FluidR3_GM", instrument: "electric_piano_1", volume: 87 });
+  sampledLoads[patch] = import("smplr").then(({ SplendidGrandPiano }) => {
+    const instrument = SplendidGrandPiano(ctx, { volume: 86, decayTime: 1.5 });
     return instrument.ready.then(() => { sampledInstruments[patch] = instrument; });
   }).catch(() => undefined).finally(() => { delete sampledLoads[patch]; });
 }
@@ -283,6 +283,7 @@ export default function Home() {
   const [fingers, setFingers] = useState(true);
   const [includeBass, setIncludeBass] = useState(true);
   const [soundPatch, setSoundPatch] = useState<SoundPatch>("cadence");
+  const soundPatchRef = useRef<SoundPatch>("cadence");
   const [tempo, setTempo] = useState(82);
   const [activeMidi, setActiveMidi] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -296,6 +297,14 @@ export default function Home() {
     document.addEventListener("fullscreenchange",syncFullscreen);
     return ()=>{cancelAnimationFrame(themeFrame);document.removeEventListener("fullscreenchange",syncFullscreen)};
   }, []);
+  useEffect(()=>{ soundPatchRef.current = soundPatch; },[soundPatch]);
+
+  function changeSoundPatch(nextPatch: SoundPatch) {
+    setSoundPatch(nextPatch);
+    soundPatchRef.current = nextPatch;
+    // Selecting a sample is a user gesture, so warm it before the next chord.
+    void ensureAudioContext().then(ctx => { if (ctx) warmSampledInstrument(ctx, nextPatch); });
+  }
 
   function toggleTheme() {
     const nextTheme = theme === "dark" ? "light" : "dark";
@@ -575,7 +584,7 @@ export default function Home() {
       const notes = audibleNotes(event, includeBass);
       if (ctx.state === "running") {
         silenceActiveNotes(ctx);
-        activeNoteStops = schedulePlayableNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch, i);
+        activeNoteStops = schedulePlayableNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatchRef.current, i);
       } else {
         void playNotes(notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch);
       }
@@ -693,7 +702,7 @@ export default function Home() {
           <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>Three comfortable right-hand positions plus a separate bass</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
           <div className="voicing-tabs">{["Lower position", "Voice-led middle", "Upper position"].map((v,i)=><button className={voicing===i?"active":""} key={v} onClick={()=>setVoicing(i)}>{v}</button>)}</div>
           <div className="piano-wrap">
-            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>setSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="cadence">Cadence soft EP</option><option value="grand">Grand piano</option><option value="rhodes">Rhodes</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
+            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>changeSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="cadence">Cadence soft EP</option><option value="grand">Grand piano</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
             <div className="piano-shell"><div className="piano">
               {whites.map((midi) => {const cutLeft=blacks.includes(midi-1);const cutRight=blacks.includes(midi+1);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} className={`white ${cutLeft?"cut-left":""} ${cutRight?"cut-right":""} ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} key={midi} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi],1.15,undefined,soundPatch)}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>
                 <small>{keyboardNotes.includes(midi)?chordNoteName(midi,chord):noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}
