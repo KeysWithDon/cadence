@@ -147,14 +147,13 @@ function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, b
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const isBass = i === 0 && midi === bassMidi;
-    const noteStart = ctx.currentTime + i * 0.028;
-    const peak = isBass ? 0.13 : 0.075;
+    const noteStart = ctx.currentTime + i * 0.035;
     osc.type = isBass ? "sine" : "triangle";
     osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
-    // A gentle attack prevents the oscillator phase from creating a hard click.
+    // Cadence's original quick soft-EP attack: present without a noticeable fade.
     gain.gain.setValueAtTime(.0001, noteStart);
-    gain.gain.linearRampToValueAtTime(peak, noteStart + .055);
-    gain.gain.setTargetAtTime(.0001, Math.max(noteStart + .055, noteStart + releaseAt - .12), .045);
+    gain.gain.linearRampToValueAtTime(isBass ? .15 : .09, noteStart + .02);
+    gain.gain.exponentialRampToValueAtTime(.001, noteStart + releaseAt);
     osc.connect(gain).connect(ctx.destination);
     osc.start(noteStart);
     osc.stop(noteStart + releaseAt + .05);
