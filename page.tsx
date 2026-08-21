@@ -12,6 +12,7 @@ import { standardBeatsPerBar, standardTimeline, standardTimingLabel, type Standa
 import { STANDARDS } from "./standards";
 import { voiceLeadProgression, type VoicedChord, type VoiceLeadingStyle, type VoicingLayout } from "./voice-leading";
 import { buildDiatonicSevenths, parseChordRoot, spellChordPitch, spellRomanDegree } from "./music-theory";
+import { parseLeadSheet } from "./chart-reader";
 
 const NOTES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
 const MAJOR: Record<string,string[]> = Object.fromEntries(NOTES.map(note=>[note,buildDiatonicSevenths(note).slice(0,6)]));
@@ -28,7 +29,7 @@ const PROGRESSIONS = [
   { name: "Plagal soul · I–IV–I–IV", degrees: [0,3,0,3] },
 ];
 
-type GeneratorMode = "common" | "resolve" | "circle" | "workshop" | "standards";
+type GeneratorMode = "common" | "resolve" | "circle" | "chart" | "standards";
 
 function parseChord(chord: string) {
   const primary = chord.split("(")[0];
@@ -178,32 +179,7 @@ function audibleNotes(event: VoicedChord, includeBass: boolean) {
   return includeBass ? [event.bass, ...event.upperVoices] : event.upperVoices;
 }
 
-function workshopChordSuggestions(key: string, previousChord: string | undefined, extensionsEnabled: boolean, extensionLevel: "7"|"9"|"11"|"13") {
-  const diatonic = buildDiatonicSevenths(key);
-  const shaped = (chord: string) => extensionsEnabled
-    ? setChordComplexity(chord, musicalComplexity(chord, extensionLevel))
-    : setChordComplexity(chord, "triad");
-  const priorPitch = previousChord ? parseChordRoot(previousChord).root.pitchClass : -1;
-  const priorDegree = diatonic.findIndex(chord => parseChordRoot(chord).root.pitchClass === priorPitch);
-  const routes: Record<number, Array<[number, string, string]>> = {
-    0: [[1,"ii · set up the dominant","Predominant motion gives the harmony somewhere to go."],[3,"IV · open the harmony","The subdominant creates a natural lift from home."],[4,"V · create a clear return","The dominant’s guide tones point back to I."],[5,"vi · soften the color","A relative-minor turn keeps a shared, lyrical sound."]],
-    1: [[4,"V · complete ii–V","This is the classic functional pull toward home."],[3,"IV · delay the arrival","A gentle detour keeps the tension spacious."],[5,"vi · move by shared tones","This supports a smooth, less direct line."]],
-    2: [[5,"vi · continue the lift","iii–vi keeps a close, connected inner line."],[3,"IV · broaden the color","Common tones make this a calm, musical turn."],[1,"ii · begin a cadence","This prepares a dependable ii–V route."]],
-    3: [[4,"V · build destination energy","IV–V sets up a clear resolution."],[0,"I · settle home","Plagal movement resolves without extra tension."],[1,"ii · keep moving","Use this when you want to postpone the arrival."]],
-    4: [[0,"I · resolve home","The dominant 3rd and 7th have a clear destination."],[5,"vi · deceptive color","A deceptive move preserves motion without landing yet."],[1,"ii · continue the circle","This restarts a smooth functional loop."]],
-    5: [[1,"ii · start a cadence","vi–ii is a natural way to build toward V."],[3,"IV · brighten the path","Shared tones keep this gentle and singable."],[4,"V · add direct pull","Use this when the next chord should feel inevitable."]],
-    6: [[0,"I · resolve the leading tone","The leading tone wants to move upward into home."]],
-  };
-  const fallback = [[0,"I · home","Start or reset the harmonic center."],[1,"ii · predominant","Set up a future dominant."],[3,"IV · lift","Move outward while retaining common tones."],[4,"V · resolve","Create a strong return to I."],[5,"vi · relative minor","Shift the emotion without leaving the key."]] as Array<[number,string,string]>;
-  const result = previousChord ? [{ chord: previousChord, label: "Hold · keep this color", why: "You do not have to move. Let a melody, rhythm, or bass change carry the phrase." }] : [];
-  for (const [degree, label, why] of routes[priorDegree] ?? fallback) result.push({ chord: shaped(diatonic[degree]), label, why });
-  result.push(
-    { chord: shaped(`${spellRomanDegree(key,6)}7`), label: "V/ii · secondary pull", why: "Use this only if you want the next move to be ii; its tendency tones make that destination feel intentional." },
-    { chord: shaped(`${spellRomanDegree(key,4)}m7`), label: "iv · borrowed color", why: "Borrowed minor adds warmth before a major-key destination without changing the tonic." },
-    { chord: shaped(`${spellRomanDegree(key,2,-1)}7`), label: "♭II7 · tritone color", why: "This is a bolder dominant color; let its tense notes resolve by half-step." },
-  );
-  return result.filter((suggestion,index,all)=>all.findIndex(candidate=>candidate.chord===suggestion.chord)===index);
-}
+const SAMPLE_CHART = "| Cmaj7 | Am7 | Dm7 G7 | Cmaj7 |\n| Fmaj7 | Em7 A7 | Dm7 G7 | Cmaj7 |";
 
 export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -216,7 +192,9 @@ export default function Home() {
   const [extensionLevel, setExtensionLevel] = useState<"7"|"9"|"11"|"13">("7");
   const [preset, setPreset] = useState(0);
   const [standardIndex, setStandardIndex] = useState(0);
-  const [workshopSuggestionIndex, setWorkshopSuggestionIndex] = useState(-1);
+  const [chartName, setChartName] = useState("No chart loaded");
+  const [chartStatus, setChartStatus] = useState("Upload a text-based PDF, TXT, MD, or CSV chord chart.");
+  const [chartText, setChartText] = useState("");
   const progressionLength = 4;
   const [progression, setProgression] = useState(["Cmaj7", "Dm7", "G7", "Cmaj7"]);
   const [durations, setDurations] = useState([1,1,1,1]);
@@ -237,6 +215,7 @@ export default function Home() {
   const [substitutionHistory, setSubstitutionHistory] = useState<Array<{progression:string[];durations:number[];selected:number}>>([]);
   const playbackTimers = useRef<number[]>([]);
   const progressionRowRef = useRef<HTMLDivElement | null>(null);
+  const chartInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const themeFrame=requestAnimationFrame(()=>setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light"));
@@ -256,11 +235,6 @@ export default function Home() {
   const chordCardRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const chord = progression[selected];
-  const workshopSuggestions = useMemo(
-    () => workshopChordSuggestions(key, progression[progression.length-1], extensionsEnabled, extensionLevel),
-    [key, progression, extensionsEnabled, extensionLevel],
-  );
-  const activeWorkshopSuggestion = workshopSuggestionIndex >= 0 ? workshopSuggestions[workshopSuggestionIndex] : undefined;
   const standardBarBeats = standardBeatsPerBar(STANDARDS[standardIndex] as StandardSource);
   const voiceStyle: VoiceLeadingStyle = generatorMode === "standards" ? "jazz"
     : generatorMode === "circle" ? /gospel|iv-iv/.test(circleApproach) ? "gospel" : "jazz"
@@ -339,6 +313,43 @@ export default function Home() {
     setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
   };
 
+  function loadChart(source: string, name: string) {
+    const parsed = parseLeadSheet(source);
+    if (parsed.chords.length === 0) {
+      setChartName(name);
+      setChartStatus("No chord symbols found. Try a text-based lead sheet or paste chord lines such as Cmaj7 | Dm7 G7 | Cmaj7.");
+      return;
+    }
+    setProgression(parsed.chords); setDurations(parsed.chords.map(()=>1));
+    setChartName(name);
+    setChartStatus(`${parsed.chords.length} written chords found across ${parsed.chordLines} chart lines. Spelling is preserved from your chart.`);
+    setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
+  }
+
+  async function readChartFile(file: File) {
+    setChartName(file.name); setChartStatus("Reading chart…");
+    try {
+      let source = "";
+      if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url).toString();
+        const document = await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+        const pages: string[] = [];
+        for (let pageNumber=1; pageNumber<=document.numPages; pageNumber += 1) {
+          const page = await document.getPage(pageNumber);
+          const content = await page.getTextContent();
+          pages.push(content.items.map(item => "str" in item ? item.str : "").join(" "));
+        }
+        source = pages.join("\n");
+      } else {
+        source = await file.text();
+      }
+      loadChart(source, file.name);
+    } catch {
+      setChartStatus("Cadence could not read that file. Try a text-based PDF, TXT, MD, or CSV chart, or paste its chord lines below.");
+    }
+  }
+
   function generate() {
     if (generatorMode === "standards") {
       const sequence = standardSequence();
@@ -349,11 +360,8 @@ export default function Home() {
       loadCircleSequence();
       return;
     }
-    if (generatorMode === "workshop") {
-      if (!activeWorkshopSuggestion) return;
-      setProgression((items) => [...items, activeWorkshopSuggestion.chord]);
-      setDurations((items) => [...items, 1]);
-      setSelected(progression.length); setWorkshopSuggestionIndex(-1); setEditTarget(null); setSubstitutionHistory([]);
+    if (generatorMode === "chart") {
+      chartInputRef.current?.click();
       return;
     }
     const pool = MAJOR[key] || MAJOR.C;
@@ -384,10 +392,9 @@ export default function Home() {
       loadCircleSequence(direction);
       return;
     }
-    if (generatorMode === "workshop") {
-      const home = workshopChordSuggestions(key, undefined, extensionsEnabled, extensionLevel)[0]?.chord ?? `${key}maj7`;
-      setProgression([home]); setDurations([1]); setSelected(0); setVoicing(0);
-      setWorkshopSuggestionIndex(-1); setEditTarget(null); setSubstitutionHistory([]); return;
+    if (generatorMode === "chart") {
+      setChartText(SAMPLE_CHART); loadChart(SAMPLE_CHART, "Cadence example chart");
+      return;
     }
     const pool = MAJOR[key] || MAJOR.C;
     const transitions: Record<number,number[]> = {0:[1,2,3,4,5],1:[4,5,2],2:[5,3,1],3:[0,1,4,5],4:[0,5],5:[1,3,4]};
@@ -462,9 +469,8 @@ export default function Home() {
       loadCircleSequence();
       return;
     }
-    if (nextMode === "workshop") {
-      const home = workshopChordSuggestions(key, undefined, extensionsEnabled, extensionLevel)[0]?.chord ?? `${key}maj7`;
-      setWorkshopSuggestionIndex(-1); setProgression([home]); setDurations([1]);
+    if (nextMode === "chart") {
+      setChartName("No chart loaded"); setChartStatus("Upload a text-based PDF, TXT, MD, or CSV chord chart."); setChartText("");
       setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]); return;
     }
     const standard = standardSequence();
@@ -496,11 +502,9 @@ export default function Home() {
       loadCircleSequence(circleDirection,circleApproach,key as CircleNote,enabled,level);
       return;
     }
-    if (generatorMode === "workshop") {
-      // Workshop is intentionally non-destructive: its existing choices remain
-      // written exactly as the learner added them. The new setting shapes only
-      // future theory-backed suggestions.
-      setWorkshopSuggestionIndex(-1);
+    if (generatorMode === "chart") {
+      // A source chart is authoritative: never rewrite its extensions or
+      // enharmonic spellings because a display preference changed.
       return;
     }
     const pool = MAJOR[key] || MAJOR.C;
@@ -518,19 +522,11 @@ export default function Home() {
     setSubstitutionHistory(h=>h.slice(0,-1)); setEditTarget(null); setVoicing(0);
   }
 
-  function removeWorkshopChord(index: number) {
-    if (progression.length <= 1) return;
-    setProgression((items) => items.filter((_, itemIndex) => itemIndex !== index));
-    setDurations((items) => items.filter((_, itemIndex) => itemIndex !== index));
-    setSelected((current) => Math.max(0, Math.min(current > index ? current - 1 : current, progression.length - 2)));
-    setEditTarget(null); setSubstitutionHistory([]);
-  }
-
   function reset() {
     setGeneratorMode("common"); setKey("C"); setPreset(0);
     setCircleDirection("fourths"); setCircleApproach("ii-v");
     setExtensionsEnabled(true); setExtensionLevel("7");
-    setWorkshopSuggestionIndex(-1);
+    setChartName("No chart loaded"); setChartStatus("Upload a text-based PDF, TXT, MD, or CSV chord chart."); setChartText("");
     setProgression(["Cmaj7", "Dm7", "G7", "Cmaj7"]);
     setDurations([1,1,1,1]);
     setGlobalTarget("C");
@@ -608,16 +604,16 @@ export default function Home() {
   const sectionStep = generatorMode === "standards"
     ? `01 · ${STANDARDS[standardIndex].bars.length} BARS · ${STANDARDS[standardIndex].timeSignature.join("/")}`
     : generatorMode === "circle" ? `01 · 12 KEYS · CIRCLE OF ${circleDirectionLabel.toUpperCase()}`
-    : generatorMode === "workshop" ? "01 · WORKSHOP" : "01";
+    : generatorMode === "chart" ? "01 · AI CHART READER" : "01";
   const sectionTitle = generatorMode === "standards" ? STANDARDS[standardIndex].name
     : generatorMode === "circle" ? `Circle of ${circleDirectionLabel} warm-up`
-    : generatorMode === "workshop" ? "Your workshop" : "Your progression";
+    : generatorMode === "chart" ? chartName : "Your progression";
   const sectionDescription = generatorMode === "standards"
     ? `${STANDARDS[standardIndex].key} · ${STANDARDS[standardIndex].style}${STANDARDS[standardIndex].matchStatus==="reduction"?" · Reduced harmonic study":""} · Select each chord to hear its voice-led piano shape.`
     : generatorMode === "circle"
       ? `${activeCircleApproach.roman} before every destination. Play through all 12 keys and return to ${key}; every route and arrival is re-voiced together.`
-      : generatorMode === "workshop"
-        ? `Build your own route one chord at a time. Suggestions are spelled from ${key} major so each degree, accidental, and resolution remains musically meaningful.`
+      : generatorMode === "chart"
+        ? chartStatus
       : "Select a chord to explore it, or add a turnaround before the next chord.";
 
   return (
@@ -633,19 +629,19 @@ export default function Home() {
         <p>Generate a progression, reshape the harmony, and learn piano voicings as you go.</p>
         <div className={`generator-card mode-${generatorMode}`}>
           <div className="mode-picker"><span>LEARNING MODE</span><div className="mode-options" role="group" aria-label="Choose a learning mode">
-            {([['common','Common progressions'],['resolve','Resolution lab'],['circle','Circle warm-up'],['workshop','Workshop'],['standards','Jazz standards']] as const).map(([mode,label])=><button type="button" key={mode} className={generatorMode===mode?"active":""} aria-pressed={generatorMode===mode} onClick={()=>chooseGeneratorMode(mode)}>{label}</button>)}
+            {([['common','Common progressions'],['resolve','Resolution lab'],['circle','Circle warm-up'],['chart','AI chart reader'],['standards','Jazz standards']] as const).map(([mode,label])=><button type="button" key={mode} className={generatorMode===mode?"active":""} aria-pressed={generatorMode===mode} onClick={()=>chooseGeneratorMode(mode)}>{label}</button>)}
           </div></div>
-          {generatorMode!=="resolve"&&generatorMode!=="standards"&&<label>{generatorMode==="circle"?"START NOTE":"TONIC NOTE"}<select value={key} onChange={(e) => {const nextKey=e.target.value;setKey(nextKey);if(generatorMode==="circle")loadCircleSequence(circleDirection,circleApproach,nextKey as CircleNote)}}>{["C","C♯","D","E♭","E","F","F♯","G","A♭","A","B♭","B"].map(k => <option key={k}>{k}</option>)}</select></label>}
+          {generatorMode!=="resolve"&&generatorMode!=="standards"&&generatorMode!=="chart"&&<label>{generatorMode==="circle"?"START NOTE":"TONIC NOTE"}<select value={key} onChange={(e) => {const nextKey=e.target.value;setKey(nextKey);if(generatorMode==="circle")loadCircleSequence(circleDirection,circleApproach,nextKey as CircleNote)}}>{["C","C♯","D","E♭","E","F","F♯","G","A♭","A","B♭","B"].map(k => <option key={k}>{k}</option>)}</select></label>}
           {generatorMode==="common"&&<label>KEYBOARD ESSENTIAL<select value={preset} onChange={(e) => choosePreset(+e.target.value)}>{PROGRESSIONS.map((p,i) => <option value={i} key={p.name}>{p.name}</option>)}</select></label>}
           {generatorMode==="standards"&&<label>STANDARD · {STANDARDS.length} SONGS<select value={standardIndex} onChange={e=>chooseStandard(+e.target.value)}>{STANDARDS.map((standard,i)=><option value={i} key={standard.name}>{standard.name} · {standard.key}{standard.matchStatus==="reduction"?" · REDUCED STUDY":""}</option>)}</select></label>}
           {generatorMode==="resolve"&&<><label>SOURCE NOTE<select value={sourceNote} onChange={e=>chooseSource(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="source-quality">SOURCE QUALITY<select value={sourceQuality} onChange={e=>chooseSource(sourceNote,e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
           {generatorMode==="resolve"&&<><label>TARGET NOTE<select value={globalTarget} onChange={(e)=>chooseGlobalTarget(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="target-quality">TARGET QUALITY<select value={targetQuality} onChange={e=>chooseTargetQuality(e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
           {generatorMode==="circle"&&<><label className="circle-direction">DIRECTION<select value={circleDirection} onChange={e=>chooseCircleDirection(e.target.value as CircleDirection)}><option value="fourths">Circle of fourths</option><option value="fifths">Circle of fifths</option></select></label><label className="circle-approach">BETWEEN EACH CHORD<select value={circleApproach} onChange={e=>chooseCircleApproach(e.target.value as CircleApproach)}>{CIRCLE_APPROACH_OPTIONS.map(option=><option value={option.id} key={option.id}>{option.roman} · {option.label}</option>)}</select></label></>}
-          {generatorMode==="workshop"&&<label className="workshop-suggestion">OPTIONAL NEXT IDEA<select value={workshopSuggestionIndex} onChange={e=>setWorkshopSuggestionIndex(+e.target.value)} aria-label="Choose an optional next-chord idea"><option value={-1}>Explore a direction — nothing selected</option>{workshopSuggestions.map((suggestion,index)=><option value={index} key={`${suggestion.label}-${suggestion.chord}-${index}`}>{suggestion.label} · {suggestion.chord}</option>)}</select><small>{activeWorkshopSuggestion?.why??"Choose only when it fits your melody, bass line, and the destination you hear."}</small></label>}
-          {generatorMode==="standards"?<div className="chart-extensions-field"><span>EXTENSIONS</span><div className="chart-extensions">AS WRITTEN</div></div>:<label>EXTENSIONS<div className="complexity-control"><input aria-label="Use tasteful chord extensions" type="checkbox" checked={extensionsEnabled} onChange={e=>chooseComplexity(e.target.checked)}/><span>{extensionsEnabled?"ON":"OFF"}</span><select aria-label="Choose the highest available chord extension" value={extensionLevel} disabled={!extensionsEnabled} onChange={e=>chooseComplexity(true,e.target.value as "7"|"9"|"11"|"13")}><option value="7">Up to 7th</option><option value="9">Up to 9th</option><option value="11">Up to 11th</option><option value="13">Up to 13th</option></select></div></label>}
+          {generatorMode==="chart"&&<><label className="chart-upload">UPLOAD CHART<input ref={chartInputRef} aria-label="Upload a chord chart" type="file" accept=".pdf,.txt,.md,.csv,.chart,text/plain,application/pdf,text/csv" onChange={e=>{const file=e.target.files?.[0];if(file)void readChartFile(file);e.currentTarget.value="";}}/><small>PDF, TXT, MD, or CSV</small></label><label className="chart-paste">PASTE CHORD CHART<textarea value={chartText} onChange={e=>setChartText(e.target.value)} placeholder="Cmaj7 | Dm7 G7 | Cmaj7" aria-label="Paste a chord chart"/><button type="button" onClick={()=>loadChart(chartText,"Pasted chart")}>Read pasted chart</button></label></>}
+          {(generatorMode==="standards"||generatorMode==="chart")?<div className="chart-extensions-field"><span>CHORD SPELLING</span><div className="chart-extensions">{generatorMode==="chart"?"PRESERVED":"AS WRITTEN"}</div></div>:<label>EXTENSIONS<div className="complexity-control"><input aria-label="Use tasteful chord extensions" type="checkbox" checked={extensionsEnabled} onChange={e=>chooseComplexity(e.target.checked)}/><span>{extensionsEnabled?"ON":"OFF"}</span><select aria-label="Choose the highest available chord extension" value={extensionLevel} disabled={!extensionsEnabled} onChange={e=>chooseComplexity(true,e.target.value as "7"|"9"|"11"|"13")}><option value="7">Up to 7th</option><option value="9">Up to 9th</option><option value="11">Up to 11th</option><option value="13">Up to 13th</option></select></div></label>}
           <label>TEMPO<div className="tempo"><input aria-label="Playback tempo" type="range" min="30" max="200" step="1" value={tempo} onChange={e=>setTempo(+e.target.value)}/><b>{tempo} BPM</b></div></label>
-          <button className="primary" disabled={generatorMode==="workshop"&&!activeWorkshopSuggestion} onClick={generate}><span>{generatorMode==="workshop"?"＋":"↻"}</span> {generatorMode==="common"?`Refresh in ${key}`:generatorMode==="standards"?`Restart ${STANDARDS[standardIndex].name}`:generatorMode==="circle"?`Build circle from ${key}`:generatorMode==="workshop"?activeWorkshopSuggestion?`Add ${activeWorkshopSuggestion.chord}`:"Choose an idea":generatorMode==="resolve"?"Build resolution":"Refresh progression"}</button>
-          <button className="primary randomize" onClick={generateRandomTheory}><span>✦</span> {generatorMode==="standards"?"Next standard":generatorMode==="circle"?`Switch to ${circleDirection==="fourths"?"fifths":"fourths"}`:generatorMode==="workshop"?"New workshop":generatorMode==="resolve"?"New route":"Random theory"}</button>
+          <button className="primary" onClick={generate}><span>{generatorMode==="chart"?"↑":"↻"}</span> {generatorMode==="common"?`Refresh in ${key}`:generatorMode==="standards"?`Restart ${STANDARDS[standardIndex].name}`:generatorMode==="circle"?`Build circle from ${key}`:generatorMode==="chart"?"Upload chart":generatorMode==="resolve"?"Build resolution":"Refresh progression"}</button>
+          <button className="primary randomize" onClick={generateRandomTheory}><span>✦</span> {generatorMode==="standards"?"Next standard":generatorMode==="circle"?`Switch to ${circleDirection==="fourths"?"fifths":"fourths"}`:generatorMode==="chart"?"Load example":generatorMode==="resolve"?"New route":"Random theory"}</button>
         </div>
       </section>
 
@@ -653,11 +649,10 @@ export default function Home() {
         <div className="section-head"><div><span className="step">{sectionStep}</span><h2>{sectionTitle}</h2><p>{sectionDescription}</p></div><div className="progression-controls">{substitutionHistory.length>0&&<button className="undo-sub" onClick={undoSubstitution}>↶ Switch back</button>}<button className={`playall ${isPlaying?"playing":""}`} onClick={playProgression}>{isPlaying?"■ Stop progression":"▶ Play whole progression"}</button></div></div>
         <div className="progression-row" ref={progressionRowRef}>
           {progression.map((c, i) => <div className="chord-card" key={`${c}-${i}`} ref={(node)=>{chordCardRefs.current[i]=node}}>
-            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):generatorMode==="circle"?`${String((circleEvents[i]?.legIndex??0)+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`:`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":generatorMode==="circle"?circleEvents[i]?.role==="approach"?"APPROACH":circleEvents[i]?.legIndex===0?"START":circleEvents[i]?.legIndex===12?"HOME":"DESTINATION":generatorMode==="workshop"?i===0?"START":"YOUR CHOICE":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
+            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):generatorMode==="circle"?`${String((circleEvents[i]?.legIndex??0)+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`:`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":generatorMode==="circle"?circleEvents[i]?.role==="approach"?"APPROACH":circleEvents[i]?.legIndex===0?"START":circleEvents[i]?.legIndex===12?"HOME":"DESTINATION":generatorMode==="chart"?"FROM CHART":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
             {generatorMode!=="circle"&&<button className={`substitute-trigger ${editTarget===i?"open":""}`} onClick={()=>{setSelected(i);setSubstitutionTarget("next");setShowBlockedInfo(false);setEditTarget(editTarget===i?null:i)}}>{editTarget===i?"× Close":"↗ Substitute"}</button>}
-            {generatorMode==="workshop"&&<button className="remove-trigger" disabled={progression.length<=1} onClick={()=>removeWorkshopChord(i)}>× Remove</button>}
           </div>)}
-          {generatorMode!=="standards"&&generatorMode!=="circle"&&<button className="add-tile" disabled={generatorMode==="workshop"&&!activeWorkshopSuggestion} onClick={generate}>＋<span>{generatorMode==="workshop"?"Add selected idea":"New idea"}</span></button>}
+          {generatorMode!=="standards"&&generatorMode!=="circle"&&generatorMode!=="chart"&&<button className="add-tile" onClick={generate}>＋<span>New idea</span></button>}
         </div>
 
         {editTarget!==null&&<div className="substitution-compact">
