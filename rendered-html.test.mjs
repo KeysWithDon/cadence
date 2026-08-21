@@ -11,7 +11,7 @@ test("server-renders the complete Cadence teaching workspace",async()=>{
   const response=await render();assert.equal(response.status,200);assert.match(response.headers.get("content-type")??"",/^text\/html\b/i);
   const html=await response.text();
   assert.match(html,/<title>Cadence — Chord Progression Maker &amp; Voicing Teacher<\/title>/);
-  assert.match(html,/Common progressions/);assert.match(html,/Resolution lab/);assert.match(html,/Circle warm-up/);assert.match(html,/Jazz standards/);
+  assert.match(html,/Common progressions/);assert.match(html,/Resolution lab/);assert.match(html,/Circle warm-up/);assert.match(html,/Jazz standards/);assert.match(html,/Gospel standards/);
   assert.doesNotMatch(html,/Target practice|Workshop|AI chart reader|Arpeggiate|Block chords/);
   assert.match(html,/Adjust controls/);
   assert.match(html,/Cadence soft EP/);assert.match(html,/Grand piano/);

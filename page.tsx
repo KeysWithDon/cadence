@@ -10,11 +10,23 @@ import {
 } from "./circle-warmups";
 import { standardBeatsPerBar, standardTimeline, standardTimingLabel, type StandardSource } from "./standard-timeline";
 import { STANDARDS } from "./standards";
+import { GOSPEL_STANDARDS } from "./gospel-standards";
 import { voiceLeadProgression, type VoicedChord, type VoiceLeadingStyle, type VoicingLayout } from "./voice-leading";
-import { buildDiatonicSevenths, parseChordRoot, spellChordPitch, spellRomanDegree } from "./music-theory";
+import { buildDiatonicSevenths, parseChordRoot, parseSpelledNote, spellChordPitch, spellInterval, spellRomanDegree } from "./music-theory";
 
 const NOTES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
 const MAJOR: Record<string,string[]> = Object.fromEntries(NOTES.map(note=>[note,buildDiatonicSevenths(note).slice(0,6)]));
+const LETTERS = ["C", "D", "E", "F", "G", "A", "B"];
+
+function transposeChartChord(symbol:string, fromKey:string, toKey:string) {
+  if (fromKey === toKey) return symbol;
+  const sourceKey = parseSpelledNote(fromKey); const destinationKey = parseSpelledNote(toKey);
+  const steps = (LETTERS.indexOf(destinationKey.letter) - LETTERS.indexOf(sourceKey.letter) + 7) % 7;
+  const semitones = (destinationKey.pitchClass - sourceKey.pitchClass + 12) % 12;
+  const transposeNote = (note:string) => spellInterval(note,steps,semitones);
+  const [main,bass] = symbol.split("/"); const parsed = parseChordRoot(main);
+  return `${transposeNote(parsed.root.display)}${parsed.suffix}${bass?`/${transposeNote(bass)}`:""}`;
+}
 
 const PROGRESSIONS = [
   { name: "Pop anthem · I–V–vi–IV", degrees: [0,4,5,3] },
@@ -28,7 +40,7 @@ const PROGRESSIONS = [
   { name: "Plagal soul · I–IV–I–IV", degrees: [0,3,0,3] },
 ];
 
-type GeneratorMode = "common" | "resolve" | "circle" | "standards";
+type GeneratorMode = "common" | "resolve" | "circle" | "standards" | "gospel";
 
 function parseChord(chord: string) {
   const primary = chord.split("(")[0];
@@ -260,6 +272,7 @@ export default function Home() {
   const [extensionLevel, setExtensionLevel] = useState<"7"|"9"|"11"|"13">("7");
   const [preset, setPreset] = useState(0);
   const [standardIndex, setStandardIndex] = useState(0);
+  const [standardKey, setStandardKey] = useState("original");
   const [controlsOpen, setControlsOpen] = useState(false);
   const progressionLength = 4;
   const [progression, setProgression] = useState(["Cmaj7", "Dm7", "G7", "Cmaj7"]);
@@ -310,8 +323,12 @@ export default function Home() {
   const chordCardRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const chord = progression[selected];
-  const standardBarBeats = standardBeatsPerBar(STANDARDS[standardIndex] as StandardSource);
+  const activeStandards = generatorMode === "gospel" ? GOSPEL_STANDARDS : STANDARDS;
+  const isStandardMode = generatorMode === "standards" || generatorMode === "gospel";
+  const activeStandard = activeStandards[standardIndex] ?? activeStandards[0];
+  const standardBarBeats = standardBeatsPerBar(activeStandard as StandardSource);
   const voiceStyle: VoiceLeadingStyle = generatorMode === "standards" ? "jazz"
+    : generatorMode === "gospel" ? "gospel"
     : generatorMode === "circle" ? /gospel|iv-iv/.test(circleApproach) ? "gospel" : "jazz"
     : PROGRESSIONS[preset]?.name.includes("Gospel") || PROGRESSIONS[preset]?.name.includes("Soul") ? "gospel"
     : /Pop|Worship|Sensitive/.test(PROGRESSIONS[preset]?.name ?? "") ? "ccm"
@@ -329,17 +346,19 @@ export default function Home() {
   const voicedChord = voicedProgression[selected] ?? voicedProgression[0];
   const chordMidis = voicedChord?.upperVoices ?? [48,52,55,59];
 
-  const standardSequence = (index=standardIndex) => {
-    const events = standardTimeline(STANDARDS[index] as StandardSource);
+  const standardSequence = (index=standardIndex, requestedKey=standardKey) => {
+    const standard = activeStandards[index] ?? activeStandards[0];
+    const events = standardTimeline(standard as StandardSource);
+    const keyToUse = requestedKey === "original" ? standard.key : requestedKey;
     return {
-      chords: events.map(event=>event.chord),
+      chords: events.map(event=>transposeChartChord(event.chord,standard.key,keyToUse)),
       durations: events.map(event=>event.beats),
     };
   };
-  const routeForMode = (chords:string[], mode=generatorMode, length=progressionLength, quality=targetQuality) => mode==="standards"?standardSequence(standardIndex).chords:mode==="resolve"?resolutionPath(sourceNote,sourceQuality,globalTarget,quality,length):chords;
+  const routeForMode = (chords:string[], mode=generatorMode, length=progressionLength, quality=targetQuality) => (mode==="standards"||mode==="gospel")?standardSequence(standardIndex).chords:mode==="resolve"?resolutionPath(sourceNote,sourceQuality,globalTarget,quality,length):chords;
 
   const applyComplexity = (chords:string[], enabled=extensionsEnabled, level=extensionLevel, mode=generatorMode) => chords.map((chordName,index)=>{
-    if (mode === "standards") return chordName;
+    if (mode === "standards" || mode === "gospel") return chordName;
     if (!enabled) return setChordComplexity(chordName,"triad");
     const isTarget = mode!=="common" && index===chords.length-1;
     const isDominant = !chordName.includes("maj") && !chordName.includes("m") && !chordName.includes("dim") && !chordName.includes("aug");
@@ -389,7 +408,7 @@ export default function Home() {
   };
 
   function generate() {
-    if (generatorMode === "standards") {
+    if (isStandardMode) {
       const sequence = standardSequence();
       setProgression(sequence.chords); setDurations(sequence.durations);
       setSelected(0); setEditTarget(null); setSubstitutionHistory([]); setVoicing(0); return;
@@ -414,8 +433,8 @@ export default function Home() {
   }
 
   function generateRandomTheory() {
-    if (generatorMode === "standards") {
-      const nextIndex = (standardIndex+1)%STANDARDS.length;
+    if (isStandardMode) {
+      const nextIndex = (standardIndex+1)%activeStandards.length;
       const sequence = standardSequence(nextIndex);
       setStandardIndex(nextIndex); setProgression(sequence.chords); setDurations(sequence.durations);
       setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]); return;
@@ -499,16 +518,25 @@ export default function Home() {
       loadCircleSequence();
       return;
     }
-    const standard = standardSequence();
-    const routed = nextMode==="standards"?standard.chords:nextMode==="resolve"?resolutionPath(sourceNote,sourceQuality,globalTarget,targetQuality,progressionLength):nextChords;
+    const nextLibrary = nextMode === "gospel" ? GOSPEL_STANDARDS : STANDARDS;
+    const nextStandard = nextLibrary[0];
+    const standard = {chords:standardTimeline(nextStandard as StandardSource).map(event=>event.chord),durations:standardTimeline(nextStandard as StandardSource).map(event=>event.beats)};
+    const isNextStandardMode = nextMode==="standards" || nextMode==="gospel";
+    const routed = isNextStandardMode?standard.chords:nextMode==="resolve"?resolutionPath(sourceNote,sourceQuality,globalTarget,targetQuality,progressionLength):nextChords;
     setProgression(applyComplexity(routed,extensionsEnabled,extensionLevel,nextMode));
-    setDurations(nextMode==="standards"?standard.durations:degrees.map(()=>1));
+    setStandardIndex(0); setStandardKey("original"); setDurations(isNextStandardMode?standard.durations:degrees.map(()=>1));
     setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
   }
 
   function chooseStandard(index:number) {
     const sequence = standardSequence(index);
     setStandardIndex(index); setProgression(sequence.chords); setDurations(sequence.durations);
+    setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
+  }
+
+  function chooseStandardKey(nextKey:string) {
+    const sequence = standardSequence(standardIndex,nextKey);
+    setStandardKey(nextKey); setProgression(sequence.chords); setDurations(sequence.durations);
     setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
   }
 
@@ -624,15 +652,15 @@ export default function Home() {
   const activeCircleApproach = CIRCLE_APPROACH_OPTIONS.find(option=>option.id===circleApproach) ?? CIRCLE_APPROACH_OPTIONS[2];
   const circleDirectionLabel = circleDirection === "fourths" ? "fourths" : "fifths";
   const circleEvents = generatorMode === "circle" ? buildCircleWarmup({startNote:key as CircleNote,direction:circleDirection,approach:circleApproach}) : [];
-  const sectionStep = generatorMode === "standards"
-    ? `01 · ${STANDARDS[standardIndex].bars.length} BARS · ${STANDARDS[standardIndex].timeSignature.join("/")}`
+  const sectionStep = isStandardMode
+    ? `01 · ${activeStandard.bars.length} BARS · ${activeStandard.timeSignature.join("/")}`
     : generatorMode === "circle" ? `01 · 12 KEYS · CIRCLE OF ${circleDirectionLabel.toUpperCase()}`
     : "01";
-  const sectionTitle = generatorMode === "standards" ? STANDARDS[standardIndex].name
+  const sectionTitle = isStandardMode ? activeStandard.name
     : generatorMode === "circle" ? `Circle of ${circleDirectionLabel} warm-up`
     : "Your progression";
-  const sectionDescription = generatorMode === "standards"
-    ? `${STANDARDS[standardIndex].key} · ${STANDARDS[standardIndex].style}${STANDARDS[standardIndex].matchStatus==="reduction"?" · Reduced harmonic study":""} · Select each chord to hear its voice-led piano shape.`
+  const sectionDescription = isStandardMode
+    ? `${standardKey === "original" ? activeStandard.key : standardKey} · ${activeStandard.style}${activeStandard.matchStatus==="reduction"?" · Reduced harmonic study":""} · Select each chord to hear its voice-led piano shape.`
     : generatorMode === "circle"
       ? `${activeCircleApproach.roman} before every destination. Play through all 12 keys and return to ${key}; every route and arrival is re-voiced together.`
       : "Select a chord to explore it, or add a turnaround before the next chord.";
@@ -650,20 +678,20 @@ export default function Home() {
         <p>Generate a progression, reshape the harmony, and learn piano voicings as you go.</p>
         <div className={`generator-card mode-${generatorMode} ${controlsOpen?"controls-open":""}`}>
           <div className="mode-picker"><span>LEARNING MODE</span><div className="mode-options" role="group" aria-label="Choose a learning mode">
-            {([['common','Common progressions'],['resolve','Resolution lab'],['circle','Circle warm-up'],['standards','Jazz standards']] as const).map(([mode,label])=><button type="button" key={mode} className={generatorMode===mode?"active":""} aria-pressed={generatorMode===mode} onClick={()=>chooseGeneratorMode(mode)}>{label}</button>)}
+            {([['common','Common progressions'],['resolve','Resolution lab'],['circle','Circle warm-up'],['standards','Jazz standards'],['gospel','Gospel standards']] as const).map(([mode,label])=><button type="button" key={mode} className={generatorMode===mode?"active":""} aria-pressed={generatorMode===mode} onClick={()=>chooseGeneratorMode(mode)}>{label}</button>)}
           </div></div>
           <button type="button" className="controls-toggle" onClick={()=>setControlsOpen(open=>!open)} aria-expanded={controlsOpen} aria-controls="generator-controls">{controlsOpen?"Hide controls":"Adjust controls"}<span aria-hidden="true">{controlsOpen?"−":"+"}</span></button>
           <div className="generator-fields" id="generator-controls">
-          {generatorMode!=="resolve"&&generatorMode!=="standards"&&<label>{generatorMode==="circle"?"START NOTE":"TONIC NOTE"}<select value={key} onChange={(e) => {const nextKey=e.target.value;setKey(nextKey);if(generatorMode==="circle")loadCircleSequence(circleDirection,circleApproach,nextKey as CircleNote)}}>{["C","C♯","D","E♭","E","F","F♯","G","A♭","A","B♭","B"].map(k => <option key={k}>{k}</option>)}</select></label>}
+          {generatorMode!=="resolve"&&!isStandardMode&&<label>{generatorMode==="circle"?"START NOTE":"TONIC NOTE"}<select value={key} onChange={(e) => {const nextKey=e.target.value;setKey(nextKey);if(generatorMode==="circle")loadCircleSequence(circleDirection,circleApproach,nextKey as CircleNote)}}>{["C","C♯","D","E♭","E","F","F♯","G","A♭","A","B♭","B"].map(k => <option key={k}>{k}</option>)}</select></label>}
           {generatorMode==="common"&&<label>KEYBOARD ESSENTIAL<select value={preset} onChange={(e) => choosePreset(+e.target.value)}>{PROGRESSIONS.map((p,i) => <option value={i} key={p.name}>{p.name}</option>)}</select></label>}
-          {generatorMode==="standards"&&<label>STANDARD · {STANDARDS.length} SONGS<select value={standardIndex} onChange={e=>chooseStandard(+e.target.value)}>{STANDARDS.map((standard,i)=><option value={i} key={standard.name}>{standard.name} · {standard.key}{standard.matchStatus==="reduction"?" · REDUCED STUDY":""}</option>)}</select></label>}
+          {isStandardMode&&<><label>STANDARD · {activeStandards.length} SONGS<select value={standardIndex} onChange={e=>chooseStandard(+e.target.value)}>{activeStandards.map((standard,i)=><option value={i} key={standard.name}>{standard.name} · {standard.key}{standard.matchStatus==="reduction"?" · REDUCED STUDY":""}</option>)}</select></label><label>KEY<select value={standardKey} onChange={e=>chooseStandardKey(e.target.value)}><option value="original">ORIGINAL · {activeStandard.key}</option>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label></>}
           {generatorMode==="resolve"&&<><label>SOURCE NOTE<select value={sourceNote} onChange={e=>chooseSource(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="source-quality">SOURCE QUALITY<select value={sourceQuality} onChange={e=>chooseSource(sourceNote,e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
           {generatorMode==="resolve"&&<><label>TARGET NOTE<select value={globalTarget} onChange={(e)=>chooseGlobalTarget(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="target-quality">TARGET QUALITY<select value={targetQuality} onChange={e=>chooseTargetQuality(e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
           {generatorMode==="circle"&&<><label className="circle-direction">DIRECTION<select value={circleDirection} onChange={e=>chooseCircleDirection(e.target.value as CircleDirection)}><option value="fourths">Circle of fourths</option><option value="fifths">Circle of fifths</option></select></label><label className="circle-approach">BETWEEN EACH CHORD<select value={circleApproach} onChange={e=>chooseCircleApproach(e.target.value as CircleApproach)}>{CIRCLE_APPROACH_OPTIONS.map(option=><option value={option.id} key={option.id}>{option.roman} · {option.label}</option>)}</select></label></>}
-          {generatorMode==="standards"?<div className="standards-spelling"><span>CHORD SPELLING</span><div>AS WRITTEN</div></div>:<label>EXTENSIONS<div className="complexity-control"><input aria-label="Use tasteful chord extensions" type="checkbox" checked={extensionsEnabled} onChange={e=>chooseComplexity(e.target.checked)}/><span>{extensionsEnabled?"ON":"OFF"}</span><select aria-label="Choose the highest available chord extension" value={extensionLevel} disabled={!extensionsEnabled} onChange={e=>chooseComplexity(true,e.target.value as "7"|"9"|"11"|"13")}><option value="7">Up to 7th</option><option value="9">Up to 9th</option><option value="11">Up to 11th</option><option value="13">Up to 13th</option></select></div></label>}
+          {isStandardMode?<div className="standards-spelling"><span>CHORD SPELLING</span><div>{standardKey === "original" ? "AS WRITTEN" : `IN ${standardKey}`}</div></div>:<label>EXTENSIONS<div className="complexity-control"><input aria-label="Use tasteful chord extensions" type="checkbox" checked={extensionsEnabled} onChange={e=>chooseComplexity(e.target.checked)}/><span>{extensionsEnabled?"ON":"OFF"}</span><select aria-label="Choose the highest available chord extension" value={extensionLevel} disabled={!extensionsEnabled} onChange={e=>chooseComplexity(true,e.target.value as "7"|"9"|"11"|"13")}><option value="7">Up to 7th</option><option value="9">Up to 9th</option><option value="11">Up to 11th</option><option value="13">Up to 13th</option></select></div></label>}
           <label>TEMPO<div className="tempo"><input aria-label="Playback tempo" type="range" min="30" max="200" step="1" value={tempo} onChange={e=>setTempo(+e.target.value)}/><b>{tempo} BPM</b></div></label>
-          <button className="primary" onClick={generate}>{generatorMode!=="common"&&<span>↻</span>}{generatorMode==="common"?"Generate Chords":generatorMode==="standards"?`Restart ${STANDARDS[standardIndex].name}`:generatorMode==="circle"?`Build circle from ${key}`:generatorMode==="resolve"?"Build resolution":"Refresh progression"}</button>
-          <button className="primary randomize" onClick={generateRandomTheory}><span>✦</span> {generatorMode==="standards"?"Next standard":generatorMode==="circle"?`Switch to ${circleDirection==="fourths"?"fifths":"fourths"}`:generatorMode==="resolve"?"New route":"Random theory"}</button>
+          <button className="primary" onClick={generate}>{generatorMode!=="common"&&<span>↻</span>}{generatorMode==="common"?"Generate Chords":isStandardMode?`Restart ${activeStandard.name}`:generatorMode==="circle"?`Build circle from ${key}`:generatorMode==="resolve"?"Build resolution":"Refresh progression"}</button>
+          <button className="primary randomize" onClick={generateRandomTheory}><span>✦</span> {isStandardMode?"Next standard":generatorMode==="circle"?`Switch to ${circleDirection==="fourths"?"fifths":"fourths"}`:generatorMode==="resolve"?"New route":"Random theory"}</button>
           </div>
         </div>
       </section>
@@ -672,10 +700,10 @@ export default function Home() {
         <div className="section-head"><div><span className="step">{sectionStep}</span><h2>{sectionTitle}</h2><p>{sectionDescription}</p></div><div className="progression-controls">{substitutionHistory.length>0&&<button className="undo-sub" onClick={undoSubstitution}>↶ Switch back</button>}<button className={`playall ${isPlaying?"playing":""}`} onClick={playProgression}>{isPlaying?"■ Stop progression":"▶ Play whole progression"}</button></div></div>
         <div className={`progression-row mode-${generatorMode}`} ref={progressionRowRef}>
           {progression.map((c, i) => <div className="chord-card" key={`${c}-${i}`} ref={(node)=>{chordCardRefs.current[i]=node}}>
-            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${generatorMode==="standards"?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),generatorMode==="standards"?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined,soundPatch)}}><small>{generatorMode==="standards"?standardTimingLabel(durations,i,standardBarBeats):generatorMode==="circle"?`${String((circleEvents[i]?.legIndex??0)+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`:`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{generatorMode==="standards"?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":generatorMode==="circle"?circleEvents[i]?.role==="approach"?"APPROACH":circleEvents[i]?.legIndex===0?"START":circleEvents[i]?.legIndex===12?"HOME":"DESTINATION":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
+            <button className={`chord-tile ${selected===i?"active":""} ${editTarget===i?"editing":""} ${durations[i]===.5?"eighth":""} ${isStandardMode?"standard-bar":""}`} onClick={()=>{const event=voicedProgression[i];setSelected(i);if(event)playNotes(audibleNotes(event,includeBass),isStandardMode?(durations[i]??standardBarBeats)*60000/tempo/1000*.94:1.15,includeBass?event.bass:undefined,soundPatch)}}><small>{isStandardMode?standardTimingLabel(durations,i,standardBarBeats):generatorMode==="circle"?`${String((circleEvents[i]?.legIndex??0)+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`:`${String(i+1).padStart(2,"0")} · ${durations[i]===.5?"♪ EIGHTH":"♩ QUARTER"}`}</small><strong>{c}</strong><span>{isStandardMode?(durations[i]??standardBarBeats)>=standardBarBeats?"HELD":"SHARED BAR":generatorMode==="circle"?circleEvents[i]?.role==="approach"?"APPROACH":circleEvents[i]?.legIndex===0?"START":circleEvents[i]?.legIndex===12?"HOME":"DESTINATION":durations[i]===.5?"APPROACH":i===progression.length-1?"HOME":i===0?"TONIC":"COLOR"}</span></button>
             {generatorMode!=="circle"&&<button className={`substitute-trigger ${editTarget===i?"open":""}`} onClick={()=>{setSelected(i);setSubstitutionTarget("next");setShowBlockedInfo(false);setEditTarget(editTarget===i?null:i)}}>{editTarget===i?"× Close":"↗ Substitute"}</button>}
           </div>)}
-          {generatorMode!=="standards"&&generatorMode!=="circle"&&<button className="add-tile" onClick={generate}>＋<span>New idea</span></button>}
+          {!isStandardMode&&generatorMode!=="circle"&&<button className="add-tile" onClick={generate}>＋<span>New idea</span></button>}
         </div>
 
         {editTarget!==null&&<div className="substitution-compact">
