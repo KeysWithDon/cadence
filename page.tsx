@@ -97,17 +97,26 @@ function rightHandFinger(index: number, voiceCount: number) {
  * offline, and retains the sound long-time users expect. The remaining
  * choices warm up a sampled instrument after that first reliable playback.
  */
-type SoundPatch = "cadence" | "grand" | "rhodes" | "organ";
+type SoundPatch = "cadence" | "grand" | "rhodes";
+type NoteStop = (time?: number) => void;
 type SampledInstrument = {
   ready: Promise<unknown>;
-  start: (event: { note: number; time?: number; duration?: number; velocity?: number }) => unknown;
-  tremolo?: { level: (value: number) => void };
+  start: (event: { note: number; time?: number; duration?: number; velocity?: number }) => NoteStop;
 };
 
 let sharedAudioContext: AudioContext | null = null;
 let sampledContext: AudioContext | null = null;
 const sampledInstruments: Partial<Record<SoundPatch, SampledInstrument>> = {};
 const sampledLoads: Partial<Record<SoundPatch, Promise<void>>> = {};
+let activeNoteStops: NoteStop[] = [];
+
+function silenceActiveNotes(ctx?: AudioContext) {
+  const time = ctx?.currentTime;
+  activeNoteStops.forEach(stop => {
+    try { stop(time); } catch { /* A completed voice has nothing left to stop. */ }
+  });
+  activeNoteStops = [];
+}
 
 async function ensureAudioContext() {
   const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -132,9 +141,9 @@ async function ensureAudioContext() {
   return ctx.state === "running" ? ctx : null;
 }
 
-function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, bassMidi?: number) {
+function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, bassMidi?: number): NoteStop[] {
   const releaseAt = Math.max(.2, holdSeconds);
-  midis.forEach((midi, i) => {
+  return midis.map((midi, i) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const isBass = i === 0 && midi === bassMidi;
@@ -147,6 +156,14 @@ function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, b
     osc.connect(gain).connect(ctx.destination);
     osc.start(noteStart);
     osc.stop(noteStart + releaseAt + .05);
+    return (stopTime = ctx.currentTime) => {
+      const releaseStart = Math.max(stopTime, noteStart);
+      try {
+        gain.gain.cancelScheduledValues(releaseStart);
+        gain.gain.setTargetAtTime(.0001, releaseStart, .012);
+        osc.stop(releaseStart + .045);
+      } catch { /* The oscillator may already have ended. */ }
+    };
   });
 }
 
@@ -154,53 +171,52 @@ function warmSampledInstrument(ctx: AudioContext, patch: SoundPatch) {
   if (patch === "cadence") return;
   if (sampledContext !== ctx) {
     sampledContext = ctx;
-    delete sampledInstruments.grand; delete sampledInstruments.rhodes; delete sampledInstruments.organ;
-    delete sampledLoads.grand; delete sampledLoads.rhodes; delete sampledLoads.organ;
+    delete sampledInstruments.grand; delete sampledInstruments.rhodes;
+    delete sampledLoads.grand; delete sampledLoads.rhodes;
   }
   if (sampledInstruments[patch] || sampledLoads[patch]) return;
   sampledLoads[patch] = import("smplr").then(({ Soundfont, SplendidGrandPiano }) => {
     const instrument = patch === "grand"
       ? SplendidGrandPiano(ctx, { volume: 86, decayTime: 1.5 })
-      : patch === "rhodes"
-        ? Soundfont(ctx, { kit: "FluidR3_GM", instrument: "electric_piano_1", volume: 87 })
-        : Soundfont(ctx, { kit: "FluidR3_GM", instrument: "drawbar_organ", volume: 82, loadLoopData: true });
+      : Soundfont(ctx, { kit: "FluidR3_GM", instrument: "electric_piano_1", volume: 87 });
     return instrument.ready.then(() => { sampledInstruments[patch] = instrument; });
   }).catch(() => undefined).finally(() => { delete sampledLoads[patch]; });
 }
 
-function scheduleSampledNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch, phraseIndex = 0) {
-  if (patch === "cadence") return false;
+function scheduleSampledNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch, phraseIndex = 0): NoteStop[] | null {
+  if (patch === "cadence") return null;
   const instrument = sampledInstruments[patch];
-  if (!instrument) return false;
-  const releaseAt = Math.max(.2, holdSeconds);
+  if (!instrument) return null;
+  const releaseAt = Math.max(.16, holdSeconds - .035);
   const playerAccent = (phraseIndex % 4) * 2;
-  midis.forEach((midi, index) => {
+  return midis.map((midi, index) => {
     const isBass = midi === bassMidi;
-    const velocity = patch === "organ"
-      ? (isBass ? 84 : 96)
-      : Math.max(68, Math.min(112, (isBass ? 78 : 94 + playerAccent) - Math.min(index, 4) * 2));
-    instrument.start({
+    const velocity = Math.max(68, Math.min(112, (isBass ? 78 : 94 + playerAccent) - Math.min(index, 4) * 2));
+    return instrument.start({
     note: midi,
     // A tiny roll lets a held chord breathe without becoming an arpeggio.
-    time: ctx.currentTime + index * (patch === "organ" ? .008 : .018),
+    time: ctx.currentTime + index * .018,
     duration: releaseAt,
     velocity,
     });
   });
-  return true;
 }
 
-function schedulePlayableNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch, phraseIndex = 0) {
-  if (!scheduleSampledNotes(ctx, midis, holdSeconds, bassMidi, patch, phraseIndex)) {
-    scheduleNotes(ctx, midis, holdSeconds, bassMidi);
+function schedulePlayableNotes(ctx: AudioContext, midis: number[], holdSeconds: number, bassMidi: number | undefined, patch: SoundPatch, phraseIndex = 0): NoteStop[] {
+  const sampledStops = scheduleSampledNotes(ctx, midis, holdSeconds, bassMidi, patch, phraseIndex);
+  if (!sampledStops) {
+    const stops = scheduleNotes(ctx, midis, holdSeconds, bassMidi);
     warmSampledInstrument(ctx, patch);
+    return stops;
   }
+  return sampledStops;
 }
 
 async function playNotes(midis: number[], holdSeconds = 1.15, bassMidi?: number, patch: SoundPatch = "cadence", phraseIndex = 0) {
   const ctx = await ensureAudioContext();
   if (!ctx) return false;
-  schedulePlayableNotes(ctx, midis, holdSeconds, bassMidi, patch, phraseIndex);
+  silenceActiveNotes(ctx);
+  activeNoteStops = schedulePlayableNotes(ctx, midis, holdSeconds, bassMidi, patch, phraseIndex);
   return true;
 }
 
@@ -539,13 +555,14 @@ export default function Home() {
   async function playProgression() {
     playbackTimers.current.forEach(clearTimeout);
     playbackTimers.current = [];
-    if (isPlaying) { setIsPlaying(false); return; }
+    if (isPlaying) { silenceActiveNotes(sharedAudioContext ?? undefined); setIsPlaying(false); return; }
 
     // Unlock audio while this click still counts as a user gesture. The actual
     // progression notes are dispatched by timers, which cannot unlock audio.
     const ctx = await ensureAudioContext();
     if (!ctx) { setIsPlaying(false); return; }
 
+    silenceActiveNotes(ctx);
     setIsPlaying(true);
     const beat = 60000 / tempo;
     let elapsed = 0;
@@ -557,7 +574,8 @@ export default function Home() {
       setSelected(i);
       const notes = audibleNotes(event, includeBass);
       if (ctx.state === "running") {
-        schedulePlayableNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch, i);
+        silenceActiveNotes(ctx);
+        activeNoteStops = schedulePlayableNotes(ctx, notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch, i);
       } else {
         void playNotes(notes, eventBeats*beat/1000*.94, includeBass ? event.bass : undefined, soundPatch);
       }
@@ -675,7 +693,7 @@ export default function Home() {
           <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>Three comfortable right-hand positions plus a separate bass</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
           <div className="voicing-tabs">{["Lower position", "Voice-led middle", "Upper position"].map((v,i)=><button className={voicing===i?"active":""} key={v} onClick={()=>setVoicing(i)}>{v}</button>)}</div>
           <div className="piano-wrap">
-            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>setSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="cadence">Cadence soft EP</option><option value="grand">Grand piano</option><option value="rhodes">Rhodes</option><option value="organ">B3 organ</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
+            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>setSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="cadence">Cadence soft EP</option><option value="grand">Grand piano</option><option value="rhodes">Rhodes</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
             <div className="piano-shell"><div className="piano">
               {whites.map((midi) => {const cutLeft=blacks.includes(midi-1);const cutRight=blacks.includes(midi+1);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} className={`white ${cutLeft?"cut-left":""} ${cutRight?"cut-right":""} ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} key={midi} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi],1.15,undefined,soundPatch)}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>
                 <small>{keyboardNotes.includes(midi)?chordNoteName(midi,chord):noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}
