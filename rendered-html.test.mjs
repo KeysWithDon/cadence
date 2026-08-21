@@ -13,12 +13,12 @@ test("server-renders the complete Cadence teaching workspace",async()=>{
   assert.match(html,/<title>Cadence — Chord Progression Maker &amp; Voicing Teacher<\/title>/);
   assert.match(html,/Common progressions/);assert.match(html,/Resolution lab/);assert.match(html,/Circle warm-up/);assert.match(html,/Jazz standards/);
   assert.doesNotMatch(html,/Target practice|Workshop|AI chart reader|Arpeggiate|Block chords/);
-  assert.match(html,/Adjust controls/);
+  assert.match(html,/Hide controls/);
   assert.match(html,/Cadence soft EP/);assert.match(html,/Grand piano/);
   assert.doesNotMatch(html,/Wurlitzer|B3 organ|drawbar_organ|Rhodes|electric_piano_1/);
   assert.doesNotMatch(html,/Why this works|Why this movement works/);
   assert.match(html,/aria-label="Switch to dark mode"/);assert.match(html,/aria-label="Enter full screen"/);
   assert.doesNotMatch(html,/>Studio<|>Learn<|>Library</);
-  assert.match(html,/Play whole progression/);assert.match(html,/Hear.*voicing.*bass/);
+  assert.match(html,/Play whole progression/);assert.match(html,/▶ Hear/);
   assert.doesNotMatch(html,/codex-preview|Building your site|react-loading-skeleton/);
 });

@@ -193,3 +193,57 @@ html[data-theme="dark"] .fullscreen-explanation{background:#0f1a15;color:#eaf2ed
 @media(min-width:901px){.progression-row.mode-common,.progression-row.mode-resolve{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));overflow:visible}.progression-row.mode-common .chord-card,.progression-row.mode-resolve .chord-card{min-width:0}.progression-row.mode-common .chord-tile,.progression-row.mode-resolve .chord-tile,.progression-row.mode-common .add-tile,.progression-row.mode-resolve .add-tile{min-width:0;width:100%}}
 @media(min-width:1200px){.generator-card,.workspace>.section-head,.workspace>.progression-row,.workspace>.substitution-compact,.workspace>.teacher{max-width:3200px}.teacher>.piano-wrap{width:100%}}
 @media(max-width:800px){.sound-picker{margin-left:0}.sound-picker select{font-size:11px}.lesson-note,.fullscreen-explanation{display:none!important}}
+
+/* Performance-first interface pass. The active harmony remains unmistakable,
+   while supporting choices step back without changing the progression's order. */
+.mobile-mode-select{display:none}
+.controls-toggle{display:inline-flex;align-items:center;justify-content:space-between;gap:7px;margin-top:10px;border:1px solid #53635b;border-radius:99px;background:transparent;color:#edf2ee;padding:6px 10px;font:600 10px Manrope,sans-serif}
+.controls-toggle:hover{border-color:var(--orange);color:#fff}
+.generator-card:not(.controls-open) .generator-fields{display:none}
+.generator-card.controls-open .generator-fields{display:grid}
+.progression-row:has(.active-card) .chord-card:not(.active-card){opacity:.68;transform:scale(.955)}
+.chord-card{transition:opacity .18s,transform .18s;transform-origin:center bottom}
+.chord-card.active-card{position:relative;z-index:2;transform:scale(1.035)}
+.chord-tile.active{box-shadow:0 0 0 2px #ef6b3a,0 13px 28px #ef6b3a42;transform:translateY(-3px)}
+.reset-chord{height:23px;border:1px solid #d9d5ca;border-top:0;background:#fff7f2;color:#ad4f2e;font:600 8px "DM Mono";letter-spacing:.05em;text-transform:uppercase}
+.reset-chord:hover{background:#ef6b3a;color:#fff}
+.more-substitutions{height:30px;align-self:flex-end;border:1px solid #b8c2ba;border-radius:99px;background:transparent;color:#405149;padding:0 10px;font:600 9px "DM Mono";white-space:nowrap}
+.more-substitutions:hover{border-color:var(--orange);color:var(--orange)}
+.player-bar{display:flex;align-items:center;gap:10px;min-height:45px;padding:6px 0!important}
+.player-identity{display:flex;align-items:baseline;gap:10px;min-width:0}
+.player-identity>span{font-size:27px}.player-identity small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now-playing{font:600 8px "DM Mono";letter-spacing:.07em;color:#708078;white-space:nowrap}.now-playing.playing{color:var(--orange);animation:cadence-pulse 1.1s ease-in-out infinite}
+.player-tempo{display:flex;align-items:center;gap:5px;font:600 8px "DM Mono";letter-spacing:.06em}.player-tempo input{width:74px;accent-color:var(--orange)}.player-tempo b{font:600 10px Manrope,sans-serif}
+.player-bar .listen{margin:0 0 0 auto;white-space:nowrap}
+.piano-shell.playing .white.voiced,.piano-shell.playing .black.voiced{filter:brightness(1.08);box-shadow:0 0 14px #ef6b3a8c,inset 0 0 0 1px #fff7}
+@keyframes cadence-pulse{50%{opacity:.42}}
+
+@media(min-width:801px){
+  .generator-card .mode-options{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .generator-card .mode-options::-webkit-scrollbar{display:none}
+  .generator-card .mode-options button{flex:0 0 auto}
+  .generator-card .mode-picker{justify-content:space-between}
+  .generator-card .controls-toggle{margin:0 0 0 auto;flex:0 0 auto}
+  .generator-card:not(.controls-open){padding-bottom:10px}
+  .generator-card:not(.controls-open) .controls-toggle{margin-top:10px}
+}
+@media(max-width:800px){
+  .mode-options{display:none!important}
+  .mobile-mode-select{display:block;width:100%;border:1px solid #53635b;border-radius:3px;background:#14231d;color:#fff;padding:9px 10px;font:600 12px Manrope,sans-serif}
+  .generator-card .mode-picker{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center}
+  .generator-card .mode-picker>span{white-space:nowrap}
+  .player-bar{gap:7px}.player-identity{flex:1 1 100%;width:100%}.now-playing{order:2;flex:1 1 100%;overflow:hidden;text-overflow:ellipsis}.sound-picker{order:3}.player-tempo{order:4}.bass-toggle{order:5}.player-bar .listen{order:6;margin-left:auto}.player-tempo input{width:58px}.player-identity small{max-width:100%}
+}
+@media(max-width:540px){.player-identity>span{font-size:22px}.player-identity small{font-size:8px}.player-tempo input{width:44px}.now-playing{font-size:7px}.player-bar .listen{padding:5px 9px;font-size:8px}}
+
+/* Full screen is deliberately a performance surface: progression, transport,
+   current voicing and keyboard — no generator or instructional chrome. */
+:fullscreen .topbar,:fullscreen .hero,:fullscreen footer{display:none!important}
+:fullscreen .workspace{padding:12px clamp(14px,3vw,56px)!important}
+:fullscreen .section-head>div:first-child,:fullscreen .teacher-top,:fullscreen .voicing-tabs,:fullscreen .substitution-compact,:fullscreen .substitute-trigger,:fullscreen .reset-chord,:fullscreen .add-tile{display:none!important}
+:fullscreen .section-head{justify-content:flex-end;min-height:auto}
+:fullscreen .progression-row{margin-top:0!important}
+:fullscreen .teacher{padding-top:0!important}
+:fullscreen .piano{height:min(34vh,300px)!important}
+html[data-theme="dark"] .reset-chord{background:#111b17;border-color:#44534c;color:#ffad8d}
+html[data-theme="dark"] .more-substitutions{border-color:#58675f;color:#dce4df}
