@@ -104,6 +104,16 @@ function rightHandFinger(index: number, voiceCount: number) {
   return fingerings[voiceCount]?.[index] ?? index + 1;
 }
 
+function leftHandFinger(index: number, voiceCount: number) {
+  const fingerings: Record<number, number[]> = {
+    1: [5],
+    2: [5, 2],
+    3: [5, 3, 1],
+    4: [5, 4, 2, 1],
+  };
+  return fingerings[voiceCount]?.[index] ?? Math.max(1, 5 - index);
+}
+
 /**
  * Cadence's own soft EP is deliberately synth based: it is instant, works
  * offline, and retains the sound long-time users expect. Grand Piano is the
@@ -288,6 +298,7 @@ export default function Home() {
   const [voicing, setVoicing] = useState(0);
   const [fingers, setFingers] = useState(true);
   const [includeBass, setIncludeBass] = useState(true);
+  const [compMode, setCompMode] = useState(false);
   const [soundPatch, setSoundPatch] = useState<SoundPatch>("cadence");
   const soundPatchRef = useRef<SoundPatch>("cadence");
   const [tempo, setTempo] = useState(82);
@@ -334,7 +345,7 @@ export default function Home() {
     : /Pop|Worship|Sensitive/.test(PROGRESSIONS[preset]?.name ?? "") ? "ccm"
     : "traditional";
   const voiceLayout = (["close", "open", "drop2"] as const)[voicing] satisfies VoicingLayout;
-  const voicedProgression = useMemo(() => voiceLeadProgression(progression, {
+  const standardVoicedProgression = useMemo(() => voiceLeadProgression(progression, {
     style: voiceStyle,
     layout: voiceLayout,
     includeBass: true,
@@ -343,6 +354,22 @@ export default function Home() {
     minimumBassGap: 9,
     maximumHandSpan: 12,
   }), [progression, voiceStyle, voiceLayout]);
+  const compVoicedProgression = useMemo(() => {
+    const leftHand = voiceLeadProgression(progression, {
+      style: voiceStyle, layout: "close", includeBass: true,
+      upperRange: [47, 61], bassRange: [33, 42], minimumBassGap: 7, maximumHandSpan: 10,
+    });
+    const melody = voiceLeadProgression(progression, {
+      style: voiceStyle, layout: "close", includeBass: false,
+      upperRange: [67, 79], bassRange: [36, 48], minimumBassGap: 9, maximumHandSpan: 10,
+    });
+    return leftHand.map((event,index) => {
+      const melodyNote = melody[index]?.upperVoices.at(-1) ?? event.upperVoices.at(-1)! + 12;
+      const upperVoices = [...event.upperVoices, melodyNote];
+      return {...event, upperVoices, notes:[event.bass,...upperVoices]};
+    });
+  }, [progression, voiceStyle]);
+  const voicedProgression = compMode ? compVoicedProgression : standardVoicedProgression;
   const voicedChord = voicedProgression[selected] ?? voicedProgression[0];
   const chordMidis = voicedChord?.upperVoices ?? [48,52,55,59];
 
@@ -622,6 +649,13 @@ export default function Home() {
 
   const bassMidi = voicedChord?.bass ?? 36;
   const keyboardNotes = includeBass?[bassMidi, ...chordMidis]:chordMidis;
+  const compLeftHandMidis = compMode ? chordMidis.slice(0,-1) : [];
+  const keyboardFinger = (midi:number) => {
+    if (includeBass && midi === bassMidi) return <b className="bass-finger">{leftHandFinger(0,1)}</b>;
+    if (compMode && compLeftHandMidis.includes(midi)) return <b className="bass-finger">{leftHandFinger(compLeftHandMidis.indexOf(midi),compLeftHandMidis.length)}</b>;
+    if (chordMidis.includes(midi) && fingers) return <b>{compMode ? 1 : rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>;
+    return null;
+  };
   const whites = Array.from({length:49},(_,i)=>36+i).filter(m=>![1,3,6,8,10].includes(m%12));
   const blacks = Array.from({length:49},(_,i)=>36+i).filter(m=>[1,3,6,8,10].includes(m%12));
   const nextDestination = editTarget === null ? chord : progression[(editTarget+1)%progression.length];
@@ -720,15 +754,15 @@ export default function Home() {
         </div>}
 
         <div className="teacher" id="library">
-          <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>Three comfortable right-hand positions plus a separate bass</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
+          <div className="teacher-top compact"><div><span className="step">02 · VOICING TEACHER</span><p>{compMode?"Left-hand comp voicing with a separate right-hand melody":"Three comfortable right-hand positions plus a separate bass"}</p></div><label className="toggle">SHOW FINGERS <input type="checkbox" checked={fingers} onChange={e=>setFingers(e.target.checked)}/><span/></label></div>
           <div className="voicing-tabs">{["Lower position", "Voice-led middle", "Upper position"].map((v,i)=><button className={voicing===i?"active":""} key={v} onClick={()=>setVoicing(i)}>{v}</button>)}</div>
           <div className="piano-wrap">
-            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>changeSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="cadence">Cadence soft EP</option><option value="grand">Grand piano</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label></div>
+            <div className="chord-label"><span>{chord}</span><small>{includeBass?`BASS ${chordNoteName(bassMidi,chord)}`:"BASS OFF"} &nbsp;·&nbsp; {compMode?"LH COMP + RH MELODY":"RH VOICING"} &nbsp;·&nbsp; {chordMidis.map(midi=>chordNoteName(midi,chord)).join("  ·  ")} &nbsp;·&nbsp; PHRASE ARC {selected%4+1}/4</small><label className="sound-picker">SOUND<select value={soundPatch} onChange={e=>changeSoundPatch(e.target.value as SoundPatch)} aria-label="Choose piano sound"><option value="cadence">Cadence soft EP</option><option value="grand">Grand piano</option></select></label><label className="bass-toggle"><input type="checkbox" checked={includeBass} onChange={e=>setIncludeBass(e.target.checked)}/><span/> ADD BASS</label><label className="bass-toggle"><input type="checkbox" checked={compMode} onChange={e=>setCompMode(e.target.checked)}/><span/> COMP MODE</label></div>
             <div className="piano-shell"><div className="piano">
               {whites.map((midi) => {const cutLeft=blacks.includes(midi-1);const cutRight=blacks.includes(midi+1);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} className={`white ${cutLeft?"cut-left":""} ${cutRight?"cut-right":""} ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} key={midi} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi],1.15,undefined,soundPatch)}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>
-                <small>{keyboardNotes.includes(midi)?chordNoteName(midi,chord):noteName(midi)}</small>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}
+                <small>{keyboardNotes.includes(midi)?chordNoteName(midi,chord):noteName(midi)}</small>{keyboardFinger(midi)}
               </div>})}
-              {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi],1.15,undefined,soundPatch)}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}</div>})}
+              {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi],1.15,undefined,soundPatch)}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{keyboardFinger(midi)}</div>})}
             </div></div>
             <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined,soundPatch)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
           </div>
