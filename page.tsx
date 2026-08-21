@@ -29,7 +29,7 @@ const PROGRESSIONS = [
 ];
 
 type GeneratorMode = "common" | "target" | "resolve" | "circle" | "workshop" | "standards";
-type PlaybackStyle = "block" | "arpeggio";
+type PlaybackStyle = "block";
 
 function parseChord(chord: string) {
   const primary = chord.split("(")[0];
@@ -120,10 +120,8 @@ async function ensureAudioContext() {
 
 function scheduleNotes(ctx: AudioContext, midis: number[], holdSeconds = 1.15, bassMidi?: number, playbackStyle: PlaybackStyle = "block") {
   const releaseAt = Math.max(.2, holdSeconds);
-  const notes = playbackStyle === "arpeggio" ? [...midis].sort((a,b)=>a-b) : midis;
-  // Keep the sweep musical at both slow and fast tempos, while letting every
-  // note ring through the chord change instead of cutting off early.
-  const arpeggioGap = playbackStyle === "arpeggio" ? Math.min(.11, Math.max(.045, holdSeconds / (notes.length + 4))) : 0;
+  const notes = midis;
+  const arpeggioGap = 0;
   notes.forEach((midi, i) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -186,18 +184,20 @@ function audibleNotes(event: VoicedChord, includeBass: boolean) {
 
 function workshopChordSuggestions(key: string, extensionsEnabled: boolean, extensionLevel: "7"|"9"|"11"|"13") {
   const diatonic = buildDiatonicSevenths(key);
-  const shaped = (chord: string) => extensionsEnabled
-    ? setChordComplexity(chord, musicalComplexity(chord, extensionLevel))
-    : setChordComplexity(chord, "triad");
-  const degrees = ["I · home", "ii · predominant", "iii · color", "IV · lift", "V · resolve", "vi · relative minor", "viiø · leading tone"];
-  return [
-    ...diatonic.map((chord, index) => ({ chord: shaped(chord), label: degrees[index] })),
-    { chord: shaped(`${spellRomanDegree(key, 2)}m7`), label: "ii · approach to V" },
-    { chord: shaped(`${spellRomanDegree(key, 5)}7`), label: "V · dominant to I" },
-    { chord: shaped(`${spellRomanDegree(key, 7)}dim7`), label: "vii°7 · leading approach" },
-    { chord: shaped(`${spellRomanDegree(key, 4)}m7`), label: "iv · borrowed minor color" },
-    { chord: shaped(`${spellRomanDegree(key, 2, -1)}7`), label: "♭II7 · tritone color" },
+  const shaped = (chord: string) => extensionsEnabled ? setChordComplexity(chord, musicalComplexity(chord, extensionLevel)) : setChordComplexity(chord, "triad");
+  const items = [
+    { chord: diatonic[0], category: "STAY HOME", label: "Tonic · I", reason: "stable landing; keeps the key feeling centered" },
+    { chord: diatonic[1], category: "KEEP MOVING", label: "Predominant · ii", reason: "opens the door toward dominant motion without forcing it" },
+    { chord: diatonic[2], category: "ADD COLOR", label: "Color · iii", reason: "keeps the key while changing the emotional shade" },
+    { chord: diatonic[3], category: "LIFT", label: "Lift · IV", reason: "brightens the phrase and gives the melody room to rise" },
+    { chord: diatonic[4], category: "CREATE PULL", label: "Dominant · V", reason: "creates a strong pull toward I, but you can go elsewhere" },
+    { chord: diatonic[5], category: "CHANGE THE MOOD", label: "Relative minor · vi", reason: "keeps familiar notes while turning the color inward" },
+    { chord: `${spellRomanDegree(key, 5)}7`, category: "CREATE PULL", label: "Secondary dominant", reason: "adds a temporary destination and stronger forward motion" },
+    { chord: `${spellRomanDegree(key, 4)}m7`, category: "BORROW COLOR", label: "Borrowed iv", reason: "darkens the major key without abandoning its home" },
+    { chord: `${spellRomanDegree(key, 2, -1)}maj7`, category: "SURPRISE", label: "♭II borrowed color", reason: "a cinematic chromatic shift with a smooth common-tone option" },
+    { chord: `${spellRomanDegree(key, 6, -1)}maj7`, category: "SURPRISE", label: "♭VI borrowed color", reason: "adds warmth and drama while keeping the tonic available" },
   ];
+  return items.map(item => ({ ...item, chord: shaped(item.chord) }));
 }
 
 export default function Home() {
@@ -226,7 +226,7 @@ export default function Home() {
   const [voicing, setVoicing] = useState(0);
   const [fingers, setFingers] = useState(true);
   const [includeBass, setIncludeBass] = useState(true);
-  const [playbackStyle, setPlaybackStyle] = useState<PlaybackStyle>("block");
+  const [playbackStyle] = useState<PlaybackStyle>("block");
   const [tempo, setTempo] = useState(82);
   const [activeMidi, setActiveMidi] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -257,6 +257,7 @@ export default function Home() {
     [key, extensionsEnabled, extensionLevel],
   );
   const activeWorkshopSuggestion = workshopSuggestions[workshopSuggestionIndex] ?? workshopSuggestions[0];
+  const visibleWorkshopSuggestions = [0,1,2,3,4].map(offset => workshopSuggestions[(workshopSuggestionIndex + offset) % workshopSuggestions.length]).filter(Boolean);
   const standardBarBeats = standardBeatsPerBar(STANDARDS[standardIndex] as StandardSource);
   const voiceStyle: VoiceLeadingStyle = generatorMode === "standards" ? "jazz"
     : generatorMode === "circle" ? /gospel|iv-iv/.test(circleApproach) ? "gospel" : "jazz"
@@ -335,6 +336,15 @@ export default function Home() {
     setSelected(0); setVoicing(0); setEditTarget(null); setSubstitutionHistory([]);
   };
 
+  function addWorkshopChord(chordName: string) {
+    if (generatorMode !== "workshop" || !chordName) return;
+    setProgression((items) => [...items, chordName]);
+    setDurations((items) => [...items, 1]);
+    setSelected(progression.length);
+    setEditTarget(null);
+    setSubstitutionHistory([]);
+  }
+
   function generate() {
     if (generatorMode === "standards") {
       const sequence = standardSequence();
@@ -346,10 +356,6 @@ export default function Home() {
       return;
     }
     if (generatorMode === "workshop") {
-      if (!activeWorkshopSuggestion) return;
-      setProgression((items) => [...items, activeWorkshopSuggestion.chord]);
-      setDurations((items) => [...items, 1]);
-      setSelected(progression.length); setEditTarget(null); setSubstitutionHistory([]);
       return;
     }
     const pool = MAJOR[key] || MAJOR.C;
@@ -526,7 +532,7 @@ export default function Home() {
     setGeneratorMode("common"); setKey("C"); setPreset(0);
     setCircleDirection("fourths"); setCircleApproach("ii-v");
     setExtensionsEnabled(true); setExtensionLevel("7");
-    setWorkshopSuggestionIndex(0); setPlaybackStyle("block");
+    setWorkshopSuggestionIndex(0);
     setProgression(["Cmaj7", "Dm7", "G7", "Cmaj7"]);
     setDurations([1,1,1,1]);
     setGlobalTarget("C");
@@ -629,7 +635,7 @@ export default function Home() {
         <p>Generate a progression, reshape the harmony, and learn piano voicings as you go.</p>
         <div className={`generator-card mode-${generatorMode}`}>
           <div className="mode-picker"><span>LEARNING MODE</span><div className="mode-options" role="group" aria-label="Choose a learning mode">
-            {([['common','Common progressions'],['target','Target practice'],['resolve','Resolution lab'],['circle','Circle warm-up'],['workshop','Workshop'],['standards','Jazz standards']] as const).map(([mode,label])=><button type="button" key={mode} className={generatorMode===mode?"active":""} aria-pressed={generatorMode===mode} onClick={()=>chooseGeneratorMode(mode)}>{label}</button>)}
+            {([['common','Common progressions'],['resolve','Resolution lab'],['circle','Circle warm-up'],['workshop','Workshop'],['standards','Jazz standards']] as const).map(([mode,label])=><button type="button" key={mode} className={generatorMode===mode?"active":""} aria-pressed={generatorMode===mode} onClick={()=>chooseGeneratorMode(mode)}>{label}</button>)}
           </div></div>
           {generatorMode!=="resolve"&&generatorMode!=="standards"&&<label>{generatorMode==="circle"?"START NOTE":"TONIC NOTE"}<select value={key} onChange={(e) => {const nextKey=e.target.value;setKey(nextKey);if(generatorMode==="circle")loadCircleSequence(circleDirection,circleApproach,nextKey as CircleNote)}}>{["C","C♯","D","E♭","E","F","F♯","G","A♭","A","B♭","B"].map(k => <option key={k}>{k}</option>)}</select></label>}
           {generatorMode==="common"&&<label>KEYBOARD ESSENTIAL<select value={preset} onChange={(e) => choosePreset(+e.target.value)}>{PROGRESSIONS.map((p,i) => <option value={i} key={p.name}>{p.name}</option>)}</select></label>}
@@ -637,11 +643,10 @@ export default function Home() {
           {generatorMode==="resolve"&&<><label>SOURCE NOTE<select value={sourceNote} onChange={e=>chooseSource(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="source-quality">SOURCE QUALITY<select value={sourceQuality} onChange={e=>chooseSource(sourceNote,e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
           {(generatorMode==="target"||generatorMode==="resolve")&&<><label>TARGET NOTE<select value={globalTarget} onChange={(e)=>chooseGlobalTarget(e.target.value)}>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label><label className="target-quality">TARGET QUALITY<select value={targetQuality} onChange={e=>chooseTargetQuality(e.target.value as "major"|"minor"|"dominant"|"diminished"|"augmented")}><option value="major">Major</option><option value="minor">Minor</option><option value="dominant">Dominant</option><option value="diminished">Diminished</option><option value="augmented">Augmented</option></select></label></>}
           {generatorMode==="circle"&&<><label className="circle-direction">DIRECTION<select value={circleDirection} onChange={e=>chooseCircleDirection(e.target.value as CircleDirection)}><option value="fourths">Circle of fourths</option><option value="fifths">Circle of fifths</option></select></label><label className="circle-approach">BETWEEN EACH CHORD<select value={circleApproach} onChange={e=>chooseCircleApproach(e.target.value as CircleApproach)}>{CIRCLE_APPROACH_OPTIONS.map(option=><option value={option.id} key={option.id}>{option.roman} · {option.label}</option>)}</select></label></>}
-          {generatorMode==="workshop"&&<label className="workshop-suggestion">NEXT CHORD<select value={Math.min(workshopSuggestionIndex, Math.max(0, workshopSuggestions.length-1))} onChange={e=>setWorkshopSuggestionIndex(+e.target.value)} aria-label="Suggested next chord">{workshopSuggestions.map((suggestion,index)=><option value={index} key={`${suggestion.label}-${suggestion.chord}-${index}`}>{suggestion.label} · {suggestion.chord}</option>)}</select></label>}
+          {generatorMode==="workshop"&&<div className="workshop-guidance">SUGGESTIONS ARE OPTIONAL · choose any chord, or add one of the ideas below</div>}
           {generatorMode==="standards"?<div className="chart-extensions-field"><span>EXTENSIONS</span><div className="chart-extensions">AS WRITTEN</div></div>:<label>EXTENSIONS<div className="complexity-control"><input aria-label="Use tasteful chord extensions" type="checkbox" checked={extensionsEnabled} onChange={e=>chooseComplexity(e.target.checked)}/><span>{extensionsEnabled?"ON":"OFF"}</span><select aria-label="Choose the highest available chord extension" value={extensionLevel} disabled={!extensionsEnabled} onChange={e=>chooseComplexity(true,e.target.value as "7"|"9"|"11"|"13")}><option value="7">Up to 7th</option><option value="9">Up to 9th</option><option value="11">Up to 11th</option><option value="13">Up to 13th</option></select></div></label>}
-          <label className="play-style">PLAY STYLE<select aria-label="Choose block chords or arpeggios" value={playbackStyle} onChange={e=>setPlaybackStyle(e.target.value as PlaybackStyle)}><option value="block">Block chords</option><option value="arpeggio">Arpeggiate</option></select></label>
           <label>TEMPO<div className="tempo"><input aria-label="Playback tempo" type="range" min="30" max="200" step="1" value={tempo} onChange={e=>setTempo(+e.target.value)}/><b>{tempo} BPM</b></div></label>
-          <button className="primary" onClick={generate}><span>{generatorMode==="workshop"?"＋":"↻"}</span> {generatorMode==="common"?`Refresh in ${key}`:generatorMode==="standards"?`Restart ${STANDARDS[standardIndex].name}`:generatorMode==="circle"?`Build circle from ${key}`:generatorMode==="workshop"?`Add ${activeWorkshopSuggestion?.chord??"chord"}`:generatorMode==="resolve"?"Build resolution":`Reach ${setChordComplexity(targetChord(globalTarget,targetQuality),extensionsEnabled?musicalComplexity(targetChord(globalTarget,targetQuality),extensionLevel):"triad")}`}</button>
+          <button className={`primary ${generatorMode==="workshop"?"workshop-disabled":""}`} onClick={generate} disabled={generatorMode==="workshop"}><span>{generatorMode==="workshop"?"✦":"↻"}</span> {generatorMode==="common"?`Refresh in ${key}`:generatorMode==="standards"?`Restart ${STANDARDS[standardIndex].name}`:generatorMode==="circle"?`Build circle from ${key}`:generatorMode==="workshop"?"Suggestions below":generatorMode==="resolve"?"Build resolution":`Reach ${setChordComplexity(targetChord(globalTarget,targetQuality),extensionsEnabled?musicalComplexity(targetChord(globalTarget,targetQuality),extensionLevel):"triad")}`}</button>
           <button className="primary randomize" onClick={generateRandomTheory}><span>✦</span> {generatorMode==="standards"?"Next standard":generatorMode==="circle"?`Switch to ${circleDirection==="fourths"?"fifths":"fourths"}`:generatorMode==="workshop"?"New workshop":generatorMode==="resolve"?"New route":"Random theory"}</button>
         </div>
       </section>
@@ -654,8 +659,15 @@ export default function Home() {
             {generatorMode!=="circle"&&<button className={`substitute-trigger ${editTarget===i?"open":""}`} onClick={()=>{setSelected(i);setSubstitutionTarget("next");setShowBlockedInfo(false);setEditTarget(editTarget===i?null:i)}}>{editTarget===i?"× Close":"↗ Substitute"}</button>}
             {generatorMode==="workshop"&&<button className="remove-trigger" disabled={progression.length<=1} onClick={()=>removeWorkshopChord(i)}>× Remove</button>}
           </div>)}
-          {generatorMode!=="standards"&&generatorMode!=="circle"&&<button className="add-tile" onClick={generate}>＋<span>{generatorMode==="workshop"?"Add suggestion":"New idea"}</span></button>}
+          {generatorMode!=="standards"&&generatorMode!=="circle"&&<button className="add-tile" onClick={generatorMode==="workshop"?()=>addWorkshopChord(workshopSuggestions[workshopSuggestionIndex]?.chord):generate}>＋<span>{generatorMode==="workshop"?"Add chosen idea":"New idea"}</span></button>}
         </div>
+
+        {generatorMode==="workshop"&&<div className="workshop-advisor">
+          <div className="workshop-advisor-head"><div><span className="step">02 · HARMONY ADVISOR</span><h3>Ideas, not instructions</h3><p>Every suggestion is optional. Add one, ignore it, or choose your own chord.</p></div><button type="button" onClick={()=>setWorkshopSuggestionIndex(i=>(i+5)%workshopSuggestions.length)}>✦ More ideas</button></div>
+          <div className="workshop-suggestion-grid">
+            {visibleWorkshopSuggestions.map((suggestion,index)=><article className="workshop-suggestion-card" key={`${suggestion.category}-${suggestion.chord}-${index}`}><span>{suggestion.category}</span><strong>{suggestion.chord}</strong><b>{suggestion.label}</b><p>{suggestion.reason}</p><button type="button" onClick={()=>addWorkshopChord(suggestion.chord)}>＋ Add this chord</button></article>)}
+          </div>
+        </div>}
 
         {editTarget!==null&&<div className="substitution-compact">
           <label className="target-picker"><span>Target note</span><select value={substitutionTarget} onChange={e=>setSubstitutionTarget(e.target.value)} aria-label="Choose substitution target note"><option value="next">Next chord · {nextDestination}</option>{NOTES.map(note=><option value={note} key={note}>{note}</option>)}</select></label>
@@ -681,7 +693,7 @@ export default function Home() {
               </div>})}
               {blacks.map((midi)=>{const nextWhiteIndex=whites.findIndex(white=>white>midi);return <div role="button" tabIndex={0} aria-label={`Play ${noteName(midi)}`} key={midi} style={{left:`${nextWhiteIndex/whites.length*100}%`}} className={`black black-key ${keyboardNotes.includes(midi)?"voiced":""} ${includeBass&&midi===bassMidi?"bass-key":""} ${activeMidi===midi?"key-down":""}`} onPointerDown={()=>{setActiveMidi(midi);playNotes([midi])}} onPointerUp={()=>setActiveMidi(null)} onPointerLeave={()=>setActiveMidi(null)}>{includeBass&&midi===bassMidi?<b className="bass-finger">LH</b>:chordMidis.includes(midi)&&fingers&&<b>{rightHandFinger(chordMidis.indexOf(midi),chordMidis.length)}</b>}</div>})}
             </div></div>
-            <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined,playbackStyle)}>▶ &nbsp; Hear {playbackStyle==="arpeggio"?"arpeggio":includeBass?"voicing + bass":"voicing"}</button>
+            <button className="listen" onClick={()=>voicedChord&&playNotes(audibleNotes(voicedChord,includeBass),1.15,includeBass?voicedChord.bass:undefined,playbackStyle)}>▶ &nbsp; Hear {includeBass?"voicing + bass":"voicing"}</button>
           </div>
           <div className="lesson-note"><span>✦</span><div><b>Why this works</b><p>{voicedChord?.diagnostics.summary} {voicing===0?"This lower right-hand position stays clear of the separate bass.":voicing===1?"This middle position balances a comfortable register with the smoothest available voice leading.":"This upper position moves the same required chord tones higher without increasing the hand stretch."} The right hand spans {voicedChord?.diagnostics.handSpan ?? 0} semitones.</p></div></div>
         </div>

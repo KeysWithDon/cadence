@@ -1,1 +1,0 @@
-Trigger requested Cadence workshop redesign.

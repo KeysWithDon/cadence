@@ -161,3 +161,23 @@ html[data-theme="dark"] .chord-tile.editing{outline-color:#eef4f0}
 @media(max-width:600px){.theme-toggle b{display:none}.theme-toggle{width:34px;height:34px;justify-content:center;padding:0}.topbar-actions{gap:5px}.ghost{padding-inline:10px}}
 
 .remove-trigger{height:24px;border:1px solid #d9d5ca;border-top:0;background:#fffdf8;color:#8a4d3b;font:600 8px "DM Mono";letter-spacing:.06em;text-transform:uppercase}.remove-trigger:hover:not(:disabled){background:#f7e1d8;color:#702d1a}.remove-trigger:disabled{color:#aeb5b1;background:#f0eee7;cursor:not-allowed}
+
+
+/* Cadence workshop: wide, fluid desktop surface + optional harmony advisor. */
+.workspace{width:100%;max-width:1720px;margin-inline:auto;padding-inline:clamp(16px,3vw,64px)}
+.workspace>.teacher,.teacher>.piano-wrap,.piano-shell{width:100%;min-width:0}
+.teacher>.lesson-note{display:block!important;margin-top:18px}
+.workshop-guidance{font:600 10px "DM Mono";letter-spacing:.08em;color:#536159;align-self:center;padding:8px 10px}
+.workshop-disabled{opacity:.6;cursor:default}
+.workshop-advisor{margin:8px 0 26px;padding:18px 20px;background:#f1f4ef;border-left:4px solid #ef6b3a}
+.workshop-advisor-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:14px}
+.workshop-advisor-head h3{margin:3px 0 4px;font-size:22px;color:#14231d}.workshop-advisor-head p{margin:0;color:#68726c;font-size:13px}.workshop-advisor-head button{border:1px solid #14231d;background:#fffdf8;border-radius:99px;padding:9px 14px;font-weight:700;white-space:nowrap}
+.workshop-suggestion-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.workshop-suggestion-card{background:#fffdf8;border:1px solid #d9d5ca;padding:13px;display:flex;flex-direction:column;min-height:160px}.workshop-suggestion-card>span{font:600 9px "DM Mono";letter-spacing:.08em;color:#ef6b3a}.workshop-suggestion-card strong{font-size:24px;margin:6px 0 2px;color:#14231d}.workshop-suggestion-card>b{font-size:11px;color:#536159}.workshop-suggestion-card p{font-size:11px;line-height:1.45;color:#68726c;flex:1;margin:8px 0 12px}.workshop-suggestion-card button{border:1px solid #14231d;background:#14231d;color:#fff;border-radius:3px;padding:8px 10px;font-size:10px;font-weight:700}
+@media(max-width:1200px){.workshop-suggestion-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.workspace{padding-inline:12px}.workshop-advisor{padding:14px}.workshop-advisor-head{flex-direction:column}.workshop-suggestion-grid{grid-template-columns:1fr 1fr}.workshop-suggestion-card{min-height:145px}}
+@media(max-width:480px){.workshop-suggestion-grid{grid-template-columns:1fr}.workshop-guidance{display:none}}
+@media(min-width:1500px){.workspace{max-width:1760px}}
+@media(min-width:901px){.hero{padding-inline:clamp(24px,4vw,72px)}.generator-card{width:100%;max-width:1720px;margin-inline:auto}.progression-row{width:100%}.piano-wrap{width:100%}.piano-shell .piano{min-width:0;width:100%}}
+:fullscreen .teacher>.lesson-note{display:block!important}
+:-webkit-full-screen .teacher>.lesson-note{display:block!important}
