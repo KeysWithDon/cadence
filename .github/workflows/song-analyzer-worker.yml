@@ -1,0 +1,27 @@
+name: Song Analyzer Worker
+
+on:
+  push:
+    paths:
+      - "services/song-analyzer/**"
+      - ".github/workflows/song-analyzer-worker.yml"
+  pull_request:
+    paths:
+      - "services/song-analyzer/**"
+      - ".github/workflows/song-analyzer-worker.yml"
+
+jobs:
+  worker-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/song-analyzer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate worker modules
+        run: |
+          python -m py_compile analysis_service.py app.py
+          python -m unittest discover -p 'test_*.py' -v
