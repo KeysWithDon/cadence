@@ -7,14 +7,72 @@ orchestrator; it never fetches YouTube media and never returns audio or stems.
 
 from __future__ import annotations
 
-import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+_PITCH_CLASSES = {"C": 0, "B♯": 0, "C♯": 1, "D♭": 1, "D": 2, "D♯": 3, "E♭": 3, "E": 4, "F♭": 4, "E♯": 5, "F": 5, "F♯": 6, "G♭": 6, "G": 7, "G♯": 8, "A♭": 8, "A": 9, "A♯": 10, "B♭": 10, "B": 11, "C♭": 11}
+_PREFERRED_NAMES = ["C", "D♭", "D", "E♭", "E", "F", "G♭", "G", "A♭", "A", "B♭", "B"]
+
+
+def normalize_chord_symbol(symbol: str) -> str:
+    """Translate common recognizer labels into the editable chart notation.
+
+    The recognizer may emit Harte-style labels such as ``C:maj`` or ``D:min7``.
+    This deliberately changes syntax only—not a written root's enharmonic name.
+    """
+    value = symbol.strip().replace("#", "♯").replace("b", "♭")
+    if not value or value in {"N", "X", "?"}:
+        return "?"
+    match = re.match(r"^([A-G](?:[♯♭])?)(?::)?(.*)$", value)
+    if not match:
+        return value
+    root, quality = match.groups()
+    quality = quality.strip().lower().replace("(", "").replace(")", "")
+    aliases = {
+        "": "", "maj": "", "major": "", "min": "m", "minor": "m",
+        "maj7": "maj7", "major7": "maj7", "min7": "m7", "minor7": "m7",
+        "7": "7", "dom7": "7", "dim": "dim", "dim7": "dim7",
+        "hdim7": "m7♭5", "min7b5": "m7♭5", "min7♭5": "m7♭5", "sus4": "sus4", "sus2": "sus2",
+    }
+    return f"{root}{aliases.get(quality, quality.replace('b', '♭').replace('#', '♯'))}"
+
+
+def infer_key(events: list[dict[str, Any]]) -> dict[str, str]:
+    """Provide a conservative key suggestion from recognized chord roots.
+
+    This is intentionally a suggestion, not a claim of certain harmonic
+    analysis. The UI keeps the key editable for modal, borrowed, and ambiguous
+    recordings.
+    """
+    parsed: list[tuple[int, bool]] = []
+    for event in events:
+        symbol = normalize_chord_symbol(str(event.get("chordSymbol") or ""))
+        match = re.match(r"^([A-G](?:[♯♭])?)(.*)$", symbol)
+        if not match or match.group(1) not in _PITCH_CLASSES:
+            continue
+        parsed.append((_PITCH_CLASSES[match.group(1)], match.group(2).startswith("m") and not match.group(2).startswith("maj")))
+    if not parsed:
+        return {"key": "C", "mode": "major"}
+    major_scale = {0, 2, 4, 5, 7, 9, 11}
+    minor_scale = {0, 2, 3, 5, 7, 8, 10}
+    final_root = parsed[-1][0]
+    candidates: list[tuple[float, int, str]] = []
+    for tonic in range(12):
+        for mode, intervals in (("major", major_scale), ("minor", minor_scale)):
+            scale = {(tonic + interval) % 12 for interval in intervals}
+            score = sum(1.0 for root, _ in parsed if root in scale)
+            score += 2.5 if final_root == tonic else 0
+            score += 0.4 * sum(1 for root, is_minor in parsed if root == tonic and (is_minor == (mode == "minor")))
+            candidates.append((score, tonic, mode))
+    _, tonic, mode = max(candidates, key=lambda item: item[0])
+    return {"key": _PREFERRED_NAMES[tonic], "mode": mode}
 
 
 @dataclass(frozen=True)
@@ -36,7 +94,7 @@ def _parse_lab(path: Path) -> list[dict[str, Any]]:
             start, end = float(fields[0]), float(fields[1])
         except ValueError:
             continue
-        chord = " ".join(fields[2:]).strip()
+        chord = normalize_chord_symbol(" ".join(fields[2:]).strip())
         if chord and chord not in {"N", "X"}:
             events.append({"startTime": start, "endTime": end, "chordSymbol": chord, "confidence": "medium"})
     return events
@@ -51,10 +109,9 @@ def separate_to_instrumental(source: Path, work_dir: Path) -> Path:
     """
     from audio_separator.separator import Separator  # Imported only in GPU worker.
 
-    model = os.environ.get("UVR_INSTRUMENTAL_MODEL")
-    if not model:
-        raise RuntimeError("UVR_INSTRUMENTAL_MODEL must name an approved instrumental model artifact.")
-    separator = Separator(output_dir=str(work_dir), output_format="WAV")
+    model = os.environ.get("UVR_INSTRUMENTAL_MODEL", "UVR-MDX-NET-Inst_HQ_3.onnx")
+    model_directory = os.environ.get("UVR_MODEL_DIRECTORY", "/opt/models/uvr")
+    separator = Separator(output_dir=str(work_dir), output_format="WAV", model_file_dir=model_directory)
     separator.load_model(model_filename=model)
     generated = [work_dir / name for name in separator.separate(str(source))]
     instrumental = next((item for item in generated if "instrumental" in item.name.lower()), None)
@@ -65,8 +122,8 @@ def separate_to_instrumental(source: Path, work_dir: Path) -> Path:
 
 def recognize_chords(instrumental: Path, work_dir: Path) -> list[dict[str, Any]]:
     """Run a locally installed ChordMini-compatible recognizer on the music stem."""
-    chordmini_home = Path(os.environ.get("CHORD_RECOGNIZER_HOME", "")).expanduser()
-    checkpoint = os.environ.get("CHORD_RECOGNIZER_CHECKPOINT", "")
+    chordmini_home = Path(os.environ.get("CHORD_RECOGNIZER_HOME", "/opt/chordmini")).expanduser()
+    checkpoint = os.environ.get("CHORD_RECOGNIZER_CHECKPOINT", str(chordmini_home / "checkpoints/2e1d_model_best.pth"))
     if not chordmini_home.is_dir() or not checkpoint:
         raise RuntimeError("A chord recognizer home and approved checkpoint are required.")
     output_dir = work_dir / "recognition"
@@ -80,7 +137,8 @@ def recognize_chords(instrumental: Path, work_dir: Path) -> list[dict[str, Any]]
         "--use_overlap", "--use_gaussian", "--kernel_size", "9",
         "--vote_aggregation", "logit", "--min_segment_duration", "0.5", "--smooth_predictions",
     ]
-    subprocess.run(command, cwd=chordmini_home, check=True, timeout=20 * 60, capture_output=True, text=True)
+    timeout_seconds = int(os.environ.get("CHORD_RECOGNIZER_TIMEOUT_SECONDS", "1200"))
+    subprocess.run(command, cwd=chordmini_home, check=True, timeout=timeout_seconds, capture_output=True, text=True)
     candidates = list(output_dir.rglob("*.lab"))
     if not candidates:
         raise RuntimeError("Chord recognition completed without a timestamped chord chart.")
@@ -126,12 +184,15 @@ def run_analysis(request: AnalysisInput) -> dict[str, Any]:
         grid = beat_grid(instrumental)
         raw_events = recognize_chords(instrumental, work_dir)
         events = review_harmony(raw_events, key_hint=None)
+        key = infer_key(events)
         return {
             "jobId": request.job_id,
             "title": request.title or "Untitled song",
             "bpm": grid["bpm"],
             "beatTimes": grid["beatTimes"],
             "timeSignature": "4/4",
+            "key": key["key"],
+            "mode": key["mode"],
             "confidence": "medium",
             "events": events,
             "processing": {"vocalRemoval": "completed", "sourceRetained": False},
